@@ -59,7 +59,7 @@ class Network(object):
                 training_data[k:k+mini_batch_size]
                 for k in xrange(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
-                self.update_mini_batch(mini_batch, eta)
+                self.update_mini_batch2(mini_batch, eta)
             if test_data:
                 print "Epoch {0}: {1} / {2}".format(
                     j, self.evaluate(test_data), n_test)
@@ -81,6 +81,47 @@ class Network(object):
                         for w, nw in zip(self.weights, nabla_w)]
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
+
+    def update_mini_batch2(self, mini_batch, eta):
+        X = np.hstack([x for x,y in mini_batch])
+        Y = np.hstack([y for x,y in mini_batch])
+            
+        delta_nabla_b, delta_nabla_w = self.backprop2(X, Y)
+        self.weights = [w-(eta/len(mini_batch))*nw
+                        for w, nw in zip(self.weights, delta_nabla_w)]
+        self.biases = [b-(eta/len(mini_batch))*nb
+                       for b, nb in zip(self.biases, delta_nabla_b)]
+        
+    def backprop2(self, X,Y):
+        nabla_b = [np.zeros(b.shape) for b in self.biases]
+        nabla_w = [np.zeros(w.shape) for w in self.weights]
+        
+        activation = X
+        activations = [X]
+        zs = []
+
+        for b, w in zip(self.biases, self.weights):
+            z = np.dot(w, activation)+b
+            zs.append(z)
+            activation = sigmoid(z)
+            activations.append(activation)
+        # backward pass
+        delta = self.cost_derivative(activations[-1], Y) * \
+            sigmoid_prime(zs[-1])
+        # must sum
+        nabla_b[-1] = delta.sum(axis=1,keepdims=True)
+        # auto sum
+        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+        for l in xrange(2, self.num_layers):
+            z = zs[-l]
+            sp = sigmoid_prime(z)
+            delta = np.dot(self.weights[-l+1].transpose(), delta) * sp
+            # must sum
+            nabla_b[-l] = delta.sum(axis=1,keepdims=True)
+            # auto sum
+            nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
+        return (nabla_b, nabla_w)
+
 
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the
