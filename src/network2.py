@@ -166,7 +166,7 @@ class Network(object):
                     mini_batch, eta, lmbda, len(training_data))
             print "Epoch %s training complete" % j
             if monitor_training_cost:
-                cost = self.total_cost(training_data, lmbda)
+                cost = self.total_cost(training_data, lmbda, n)
                 training_cost.append(cost)
                 print "Cost on training data: {}".format(cost)
             if monitor_training_accuracy:
@@ -175,7 +175,7 @@ class Network(object):
                 print "Accuracy on training data: {} / {}".format(
                     accuracy, n)
             if monitor_evaluation_cost:
-                cost = self.total_cost(evaluation_data, lmbda, convert=True)
+                cost = self.total_cost(evaluation_data, lmbda, n, convert=True)
                 evaluation_cost.append(cost)
                 print "Cost on evaluation data: {}".format(cost)
             if monitor_evaluation_accuracy:
@@ -271,19 +271,24 @@ class Network(object):
                         for (x, y) in data]
         return sum(int(x == y) for (x, y) in results)
 
-    def total_cost(self, data, lmbda, convert=False):
+    def total_cost(self, data, lmbda, n_train, convert=False):
         """Return the total cost for the data set ``data``.  The flag
         ``convert`` should be set to False if the data set is the
         training data (the usual case), and to True if the data set is
         the validation or test data.  See comments on the similar (but
         reversed) convention for the ``accuracy`` method, above.
+
+        ``n_train`` is the size of the training data set, and is
+        always used as the divisor for the regularization term, so
+        that the regularization penalty is comparable across data
+        sets of different sizes (training vs. evaluation data).
         """
         cost = 0.0
         for x, y in data:
             a = self.feedforward(x)
             if convert: y = vectorized_result(y)
             cost += self.cost.fn(a, y)/len(data)
-        cost += 0.5*(lmbda/len(data))*sum(
+        cost += 0.5*(lmbda/n_train)*sum(
             np.linalg.norm(w)**2 for w in self.weights)
         return cost
 
