@@ -162,27 +162,27 @@ class Network(object):
                 training_data[k:k+mini_batch_size]
                 for k in xrange(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
-                self.update_mini_batch(
+                self.update_mini_batch2(
                     mini_batch, eta, lmbda, len(training_data))
             print "Epoch %s training complete" % j
             if monitor_training_cost:
-                cost = self.total_cost(training_data, lmbda, n)
+                cost = self.total_cost2(training_data, lmbda, n)
                 training_cost.append(cost)
                 print "Cost on training data: {}".format(cost)
             if monitor_training_accuracy:
-                accuracy = self.accuracy(training_data, convert=True)
+                accuracy = self.accuracy2(training_data, convert=True)
                 training_accuracy.append(accuracy)
                 print "Accuracy on training data: {} / {}".format(
                     accuracy, n)
             if monitor_evaluation_cost:
-                cost = self.total_cost(evaluation_data, lmbda, n, convert=True)
+                cost = self.total_cost2(evaluation_data, lmbda, n, convert=True)
                 evaluation_cost.append(cost)
                 print "Cost on evaluation data: {}".format(cost)
             if monitor_evaluation_accuracy:
-                accuracy = self.accuracy(evaluation_data)
+                accuracy = self.accuracy2(evaluation_data)
                 evaluation_accuracy.append(accuracy)
                 print "Accuracy on evaluation data: {} / {}".format(
-                    self.accuracy(evaluation_data), n_data)
+                    accuracy, n_data)
             print
         return evaluation_cost, evaluation_accuracy, \
             training_cost, training_accuracy
@@ -206,6 +206,38 @@ class Network(object):
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
 
+    def update_mini_batch2(self, mini_batch, eta, lmbda, n):
+        X = np.hstack([x for x,y in mini_batch])
+        Y = np.hstack([y for x,y in mini_batch])
+        nabla_b, nabla_w = self.backprop2(X, Y)
+        self.weights = [(1-eta*(lmbda/n))*w-(eta/len(mini_batch))*nw
+                        for w, nw in zip(self.weights, nabla_w)]
+        self.biases = [b-(eta/len(mini_batch))*nb
+                       for b, nb in zip(self.biases, nabla_b)]
+    def backprop2(self, X, Y):
+        nabla_b = [np.zeros(b.shape) for b in self.biases]
+        nabla_w = [np.zeros(w.shape) for w in self.weights]
+        # feedforward
+        activation = X
+        activations = [X] # list to store all the activations, layer by layer
+        zs = [] # list to store all the z vectors, layer by layer
+        for b, w in zip(self.biases, self.weights):
+            z = np.dot(w, activation)+b
+            zs.append(z)
+            activation = sigmoid(z)
+            activations.append(activation)
+        # backward pass
+        delta = (self.cost).delta(zs[-1], activations[-1], Y)
+        nabla_b[-1] = delta.sum(axis=1,keepdims=True)
+        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+        for l in xrange(2, self.num_layers):
+            z = zs[-l]
+            sp = sigmoid_prime(z)
+            delta = np.dot(self.weights[-l+1].transpose(), delta) * sp
+            nabla_b[-l] = delta.sum(axis=1,keepdims=True)
+            nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
+        return (nabla_b, nabla_w) 
+    
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the
         gradient for the cost function C_x.  ``nabla_b`` and
@@ -271,6 +303,16 @@ class Network(object):
                         for (x, y) in data]
         return sum(int(x == y) for (x, y) in results)
 
+    def accuracy2(self, data, convert=False):
+        X = np.hstack([x for(x,y) in data])
+        predictions = np.argmax(self.feedforward(X), axis=0)
+        if convert:
+            Y = np.array([np.argmax(y) for(x,y) in data])
+        else:
+            Y = np.array([y for(x,y) in data])
+
+        return int(np.sum(predictions==Y))
+
     def total_cost(self, data, lmbda, n_train, convert=False):
         """Return the total cost for the data set ``data``.  The flag
         ``convert`` should be set to False if the data set is the
@@ -288,6 +330,25 @@ class Network(object):
             a = self.feedforward(x)
             if convert: y = vectorized_result(y)
             cost += self.cost.fn(a, y)/len(data)
+        cost += 0.5*(lmbda/n_train)*sum(
+            np.linalg.norm(w)**2 for w in self.weights)
+        return cost
+
+    def total_cost2(self, data, lmbda, n_train, convert=False):
+        X = np.hstack([x for(x,y) in data])
+        if convert:
+            Y = np.hstack([vectorized_result(y) for(x,y) in data])
+        else:
+            Y = np.hstack([y for(x,y) in data])
+        
+        cost = 0.0
+        A = self.feedforward(X)
+        cost += self.cost.fn(A,Y)/len(data)
+        
+        # for x, y in data:
+        #     a = self.feedforward(x)
+        #     if convert: y = vectorized_result(y)
+        #     cost += self.cost.fn(a, y)/len(data)
         cost += 0.5*(lmbda/n_train)*sum(
             np.linalg.norm(w)**2 for w in self.weights)
         return cost
