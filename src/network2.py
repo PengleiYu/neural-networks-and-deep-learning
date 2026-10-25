@@ -10,7 +10,7 @@ easily modifiable.  It is not optimized, and omits many desirable
 features.
 
 """
-
+from __future__ import division
 #### Libraries
 # Standard library
 import json

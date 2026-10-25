@@ -19,7 +19,7 @@ training_data = training_data[:n_train]
 n_epochs = 30
 mini_batch_size = 10
 eta = 0.5
-lmbda = 0.0   # L2 regularization parameter
+lmbda = 5.0   # L2 regularization parameter
 lmbda1 = 0.0  # L1 regularization parameter
 
 run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}".format(
@@ -67,6 +67,8 @@ series = [
 ]
 active_series = [(name, values) for name, values, monitored in series if monitored]
 
+print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={}".format(
+    net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1)
 print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
 for i, ep in enumerate(epochs):
     columns = [str(ep)]
