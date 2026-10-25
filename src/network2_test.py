@@ -11,11 +11,19 @@ random.seed(12345678)
 np.random.seed(12345678)
 
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
-net = network2.Network([784,30,10], cost = network2.CrossEntropyCost)
 
-training_data = training_data[:1000]
-n_epochs = 400
+net_sizes = [784,30,10]
+n_train = 50000
+training_data = training_data[:n_train]
+n_epochs = 30
+mini_batch_size = 10
+eta = 0.5
 lmbda = 0.0
+
+run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda{}".format(
+    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda)
+
+net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
 
 # Set to an integer (e.g. 200) to only plot the last N epochs; None plots all epochs.
 plot_last_n_epochs = None
@@ -30,7 +38,7 @@ monitor_weight_norm = True
 # training_accuracy, weight_norm). Any list whose corresponding monitor_*
 # flag above is False comes back empty.
 evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm = net.SGD2(
-    training_data, n_epochs, 10, eta=0.5,
+    training_data, n_epochs, mini_batch_size, eta=eta,
     lmbda = lmbda, evaluation_data = validation_data,
     monitor_evaluation_accuracy = monitor_evaluation_accuracy,
     monitor_evaluation_cost = monitor_evaluation_cost,
@@ -109,9 +117,14 @@ if monitor_weight_norm:
     ax_norm.legend()
 
 plt.tight_layout()
-plt.savefig("network2_test_result_lmbda_{}.png".format(lmbda))
+plt.savefig("network2_test_result_{}.png".format(run_tag))
 
 results = {
+    "net_sizes": net_sizes,
+    "n_train": n_train,
+    "n_epochs": n_epochs,
+    "mini_batch_size": mini_batch_size,
+    "eta": eta,
     "lmbda": lmbda,
     "epochs": list(epochs),
     "evaluation_cost": evaluation_cost,
@@ -120,6 +133,6 @@ results = {
     "training_accuracy": training_accuracy,
     "weight_norm": weight_norm,
 }
-with open("network2_test_result_lmbda_{}.json".format(lmbda), "w") as f:
+with open("network2_test_result_{}.json".format(run_tag), "w") as f:
     json.dump(results, f, indent=2)
 
