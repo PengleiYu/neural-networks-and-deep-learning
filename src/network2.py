@@ -188,6 +188,60 @@ class Network(object):
         return evaluation_cost, evaluation_accuracy, \
             training_cost, training_accuracy
 
+    def SGD2(self, training_data, epochs, mini_batch_size, eta,
+            lmbda = 0.0,
+            evaluation_data=None,
+            monitor_evaluation_cost=False,
+            monitor_evaluation_accuracy=False,
+            monitor_training_cost=False,
+            monitor_training_accuracy=False,
+            monitor_weight_norm=False):
+        """Same as ``SGD``, but additionally accepts ``monitor_weight_norm``.
+        When set, the L2 norm of the network's weight vector is computed
+        at the end of each epoch and returned as a fifth list, alongside
+        the four lists returned by ``SGD``.
+
+        """
+        if evaluation_data: n_data = len(evaluation_data)
+        n = len(training_data)
+        evaluation_cost, evaluation_accuracy = [], []
+        training_cost, training_accuracy = [], []
+        weight_norm = []
+        for j in xrange(epochs):
+            random.shuffle(training_data)
+            mini_batches = [
+                training_data[k:k+mini_batch_size]
+                for k in xrange(0, n, mini_batch_size)]
+            for mini_batch in mini_batches:
+                self.update_mini_batch2(
+                    mini_batch, eta, lmbda, len(training_data))
+            print "Epoch %s training complete" % j
+            if monitor_training_cost:
+                cost = self.total_cost2(training_data, lmbda, n)
+                training_cost.append(cost)
+                print "Cost on training data: {}".format(cost)
+            if monitor_training_accuracy:
+                accuracy = self.accuracy2(training_data, convert=True)
+                training_accuracy.append(accuracy)
+                print "Accuracy on training data: {} / {}".format(
+                    accuracy, n)
+            if monitor_evaluation_cost:
+                cost = self.total_cost2(evaluation_data, lmbda, n, convert=True)
+                evaluation_cost.append(cost)
+                print "Cost on evaluation data: {}".format(cost)
+            if monitor_evaluation_accuracy:
+                accuracy = self.accuracy2(evaluation_data)
+                evaluation_accuracy.append(accuracy)
+                print "Accuracy on evaluation data: {} / {}".format(
+                    accuracy, n_data)
+            if monitor_weight_norm:
+                norm = self.total_weight_norm()
+                weight_norm.append(norm)
+                print "Norm of weight vector: {}".format(norm)
+            print
+        return evaluation_cost, evaluation_accuracy, \
+            training_cost, training_accuracy, weight_norm
+
     def update_mini_batch(self, mini_batch, eta, lmbda, n):
         """Update the network's weights and biases by applying gradient
         descent using backpropagation to a single mini batch.  The
@@ -353,6 +407,13 @@ class Network(object):
         cost += 0.5*(lmbda/n_train)*sum(
             np.linalg.norm(w)**2 for w in self.weights)
         return cost
+
+    def total_weight_norm(self):
+        """Return the L2 norm of the network's weight vector, i.e.
+        sqrt(sum_w w^2), summed across all weight matrices.
+
+        """
+        return np.sqrt(sum(np.linalg.norm(w)**2 for w in self.weights))
 
     def save(self, filename):
         """Save the neural network to the file ``filename``."""
