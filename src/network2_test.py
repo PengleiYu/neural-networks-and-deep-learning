@@ -1,49 +1,109 @@
+import json
 import matplotlib
 matplotlib.use("Agg")  # no display available in this environment
 import matplotlib.pyplot as plt
 import mnist_loader
 import network2
+import random
+import numpy as np
+
+random.seed(12345678)
+np.random.seed(12345678)
 
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
 net = network2.Network([784,30,10], cost = network2.CrossEntropyCost)
-n_epochs = 30
 
-# SGD returns (evaluation_cost, evaluation_accuracy, training_cost, training_accuracy)
+training_data = training_data[:1000]
+n_epochs = 400
+lmbda = 0.0
+
+# Set to an integer (e.g. 200) to only plot the last N epochs; None plots all epochs.
+plot_last_n_epochs = None
+
+monitor_evaluation_accuracy = True
+monitor_evaluation_cost = True
+monitor_training_accuracy = True
+monitor_training_cost = True
+
+# SGD returns (evaluation_cost, evaluation_accuracy, training_cost, training_accuracy).
+# Any list whose corresponding monitor_* flag above is False comes back empty.
 evaluation_cost, evaluation_accuracy, training_cost, training_accuracy = net.SGD(
-    training_data, n_epochs, 10, 0.5,
-    lmbda = 5.0, evaluation_data = validation_data,
-    monitor_evaluation_accuracy = True,
-    monitor_evaluation_cost = True,
-    monitor_training_accuracy = True,
-    monitor_training_cost = True)
+    training_data, n_epochs, 10, eta=0.5,
+    lmbda = lmbda, evaluation_data = validation_data,
+    monitor_evaluation_accuracy = monitor_evaluation_accuracy,
+    monitor_evaluation_cost = monitor_evaluation_cost,
+    monitor_training_accuracy = monitor_training_accuracy,
+    monitor_training_cost = monitor_training_cost,
+    )
 
-epochs = range(1, len(evaluation_cost) + 1)
+# Epoch count comes from n_epochs, not from any of the (possibly empty) result
+# lists, since unmonitored metrics come back as empty lists.
+epochs = range(1, n_epochs + 1)
 
-print "Epoch\tTrainCost\tTrainAcc\tEvalCost\tEvalAcc"
+series = [
+    ("TrainCost", training_cost, monitor_training_cost),
+    ("TrainAcc", training_accuracy, monitor_training_accuracy),
+    ("EvalCost", evaluation_cost, monitor_evaluation_cost),
+    ("EvalAcc", evaluation_accuracy, monitor_evaluation_accuracy),
+]
+active_series = [(name, values) for name, values, monitored in series if monitored]
+
+print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
 for i, ep in enumerate(epochs):
-    print "{}\t{:.4f}\t\t{:.4f}\t\t{:.4f}\t\t{:.4f}".format(
-        ep,
-        training_cost[i],
-        float(training_accuracy[i]) / len(training_data),
-        evaluation_cost[i],
-        float(evaluation_accuracy[i]) / len(validation_data))
+    columns = [str(ep)]
+    for name, values in active_series:
+        if name == "TrainAcc":
+            columns.append("{:.4f}".format(float(values[i]) / len(training_data)))
+        elif name == "EvalAcc":
+            columns.append("{:.4f}".format(float(values[i]) / len(validation_data)))
+        else:
+            columns.append("{:.4f}".format(values[i]))
+    print "\t\t".join(columns)
+
+if plot_last_n_epochs is None:
+    plot_slice = slice(0, len(epochs))
+else:
+    plot_slice = slice(max(0, len(epochs) - plot_last_n_epochs), len(epochs))
+
+plot_epochs = epochs[plot_slice]
 
 fig, (ax_cost, ax_acc) = plt.subplots(1, 2, figsize=(10, 4))
 
-ax_cost.plot(epochs, training_cost, label="Training cost")
-ax_cost.plot(epochs, evaluation_cost, label="Evaluation cost")
+if monitor_training_cost:
+    ax_cost.plot(plot_epochs, training_cost[plot_slice], label="Training cost")
+if monitor_evaluation_cost:
+    ax_cost.plot(plot_epochs, evaluation_cost[plot_slice], label="Evaluation cost")
 ax_cost.set_xlabel("Epoch")
 ax_cost.set_ylabel("Cost")
 ax_cost.set_title("Cost per epoch")
-ax_cost.legend()
+if monitor_training_cost or monitor_evaluation_cost:
+    ax_cost.legend()
 
-ax_acc.plot(epochs, [float(a) / len(training_data) for a in training_accuracy], label="Training accuracy")
-ax_acc.plot(epochs, [float(a) / len(validation_data) for a in evaluation_accuracy], label="Evaluation accuracy")
+if monitor_training_accuracy:
+    ax_acc.plot(plot_epochs,
+                [float(a) / len(training_data) for a in training_accuracy[plot_slice]],
+                label="Training accuracy")
+if monitor_evaluation_accuracy:
+    ax_acc.plot(plot_epochs,
+                [float(a) / len(validation_data) for a in evaluation_accuracy[plot_slice]],
+                label="Evaluation accuracy")
 ax_acc.set_xlabel("Epoch")
 ax_acc.set_ylabel("Accuracy")
 ax_acc.set_title("Accuracy per epoch")
-ax_acc.legend()
+if monitor_training_accuracy or monitor_evaluation_accuracy:
+    ax_acc.legend()
 
 plt.tight_layout()
-plt.savefig("network2_test_result.png")
+plt.savefig("network2_test_result_lmbda_{}.png".format(lmbda))
+
+results = {
+    "lmbda": lmbda,
+    "epochs": list(epochs),
+    "evaluation_cost": evaluation_cost,
+    "evaluation_accuracy": evaluation_accuracy,
+    "training_cost": training_cost,
+    "training_accuracy": training_accuracy,
+}
+with open("network2_test_result_lmbda_{}.json".format(lmbda), "w") as f:
+    json.dump(results, f, indent=2)
 

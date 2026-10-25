@@ -80,7 +80,8 @@ class Network(object):
         """
         self.num_layers = len(sizes)
         self.sizes = sizes
-        self.default_weight_initializer()
+        # self.default_weight_initializer()
+        self.large_weight_initializer()
         self.cost=cost
 
     def default_weight_initializer(self):
