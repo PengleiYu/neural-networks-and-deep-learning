@@ -163,11 +163,11 @@ class Network(object):
                 training_data[k:k+mini_batch_size]
                 for k in xrange(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
-                self.update_mini_batch2(
+                self.update_mini_batch(
                     mini_batch, eta, lmbda, len(training_data))
             print "Epoch %s training complete" % j
             if monitor_training_cost:
-                cost = self.total_cost2(training_data, lmbda, n)
+                cost = self.total_cost(training_data, lmbda, n)
                 training_cost.append(cost)
                 print "Cost on training data: {}".format(cost)
             if monitor_training_accuracy:
@@ -176,7 +176,7 @@ class Network(object):
                 print "Accuracy on training data: {} / {}".format(
                     accuracy, n)
             if monitor_evaluation_cost:
-                cost = self.total_cost2(evaluation_data, lmbda, n, convert=True)
+                cost = self.total_cost(evaluation_data, lmbda, n, convert=True)
                 evaluation_cost.append(cost)
                 print "Cost on evaluation data: {}".format(cost)
             if monitor_evaluation_accuracy:
@@ -190,16 +190,21 @@ class Network(object):
 
     def SGD2(self, training_data, epochs, mini_batch_size, eta,
             lmbda = 0.0,
+            lmbda1 = 0.0,
             evaluation_data=None,
             monitor_evaluation_cost=False,
             monitor_evaluation_accuracy=False,
             monitor_training_cost=False,
             monitor_training_accuracy=False,
-            monitor_weight_norm=False):
-        """Same as ``SGD``, but additionally accepts ``monitor_weight_norm``.
-        When set, the L2 norm of the network's weight vector is computed
-        at the end of each epoch and returned as a fifth list, alongside
-        the four lists returned by ``SGD``.
+            monitor_weight_norm=False,
+            monitor_weight_sparsity=False,
+            sparsity_threshold=1e-2):
+        """Same as ``SGD``, but additionally accepts ``monitor_weight_norm``
+        and ``monitor_weight_sparsity``.  When set, the L2 norm of the
+        network's weight vector (respectively, the fraction of weights
+        with absolute value below ``sparsity_threshold``) is computed at
+        the end of each epoch and returned as a fifth (respectively,
+        sixth) list, alongside the four lists returned by ``SGD``.
 
         """
         if evaluation_data: n_data = len(evaluation_data)
@@ -207,6 +212,7 @@ class Network(object):
         evaluation_cost, evaluation_accuracy = [], []
         training_cost, training_accuracy = [], []
         weight_norm = []
+        weight_sparsity = []
         for j in xrange(epochs):
             random.shuffle(training_data)
             mini_batches = [
@@ -214,10 +220,10 @@ class Network(object):
                 for k in xrange(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
                 self.update_mini_batch2(
-                    mini_batch, eta, lmbda, len(training_data))
+                    mini_batch, eta, lmbda, len(training_data), lmbda1=lmbda1)
             print "Epoch %s training complete" % j
             if monitor_training_cost:
-                cost = self.total_cost2(training_data, lmbda, n)
+                cost = self.total_cost2(training_data, lmbda, n, lmbda1=lmbda1)
                 training_cost.append(cost)
                 print "Cost on training data: {}".format(cost)
             if monitor_training_accuracy:
@@ -226,7 +232,7 @@ class Network(object):
                 print "Accuracy on training data: {} / {}".format(
                     accuracy, n)
             if monitor_evaluation_cost:
-                cost = self.total_cost2(evaluation_data, lmbda, n, convert=True)
+                cost = self.total_cost2(evaluation_data, lmbda, n, lmbda1=lmbda1, convert=True)
                 evaluation_cost.append(cost)
                 print "Cost on evaluation data: {}".format(cost)
             if monitor_evaluation_accuracy:
@@ -238,9 +244,14 @@ class Network(object):
                 norm = self.total_weight_norm()
                 weight_norm.append(norm)
                 print "Norm of weight vector: {}".format(norm)
+            if monitor_weight_sparsity:
+                sparsity = self.total_weight_sparsity(sparsity_threshold)
+                weight_sparsity.append(sparsity)
+                print "Weight sparsity (fraction |w| < {}): {}".format(
+                    sparsity_threshold, sparsity)
             print
         return evaluation_cost, evaluation_accuracy, \
-            training_cost, training_accuracy, weight_norm
+            training_cost, training_accuracy, weight_norm, weight_sparsity
 
     def update_mini_batch(self, mini_batch, eta, lmbda, n):
         """Update the network's weights and biases by applying gradient
@@ -261,11 +272,12 @@ class Network(object):
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
 
-    def update_mini_batch2(self, mini_batch, eta, lmbda, n):
+    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1):
         X = np.hstack([x for x,y in mini_batch])
         Y = np.hstack([y for x,y in mini_batch])
         nabla_b, nabla_w = self.backprop2(X, Y)
-        self.weights = [(1-eta*(lmbda/n))*w-(eta/len(mini_batch))*nw
+        self.weights = [(1-eta*(lmbda/n))*w - eta*(lmbda1/n)*np.sign(w)
+                         - (eta/len(mini_batch))*nw
                         for w, nw in zip(self.weights, nabla_w)]
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
@@ -389,23 +401,25 @@ class Network(object):
             np.linalg.norm(w)**2 for w in self.weights)
         return cost
 
-    def total_cost2(self, data, lmbda, n_train, convert=False):
+    def total_cost2(self, data, lmbda, n_train, lmbda1, convert=False):
         X = np.hstack([x for(x,y) in data])
         if convert:
             Y = np.hstack([vectorized_result(y) for(x,y) in data])
         else:
             Y = np.hstack([y for(x,y) in data])
-        
+
         cost = 0.0
         A = self.feedforward(X)
         cost += self.cost.fn(A,Y)/len(data)
-        
+
         # for x, y in data:
         #     a = self.feedforward(x)
         #     if convert: y = vectorized_result(y)
         #     cost += self.cost.fn(a, y)/len(data)
         cost += 0.5*(lmbda/n_train)*sum(
             np.linalg.norm(w)**2 for w in self.weights)
+        cost += (lmbda1/n_train)*sum(
+            np.sum(np.abs(w)) for w in self.weights)
         return cost
 
     def total_weight_norm(self):
@@ -414,6 +428,21 @@ class Network(object):
 
         """
         return np.sqrt(sum(np.linalg.norm(w)**2 for w in self.weights))
+
+    def total_weight_sparsity(self, threshold=1e-2):
+        """Return the fraction of weights whose absolute value is below
+        ``threshold``, pooled across all weight matrices.  This is the
+        standard way to quantify the sparsity that L1 regularization
+        induces: L1's subgradient penalty pushes many weights to (near)
+        zero, while L2's penalty only shrinks weights proportionally and
+        rarely zeroes them out.  The L2 norm computed by
+        ``total_weight_norm`` can't distinguish these two cases, so this
+        statistic is needed to see the effect directly.
+
+        """
+        small_count = sum(np.sum(np.abs(w) < threshold) for w in self.weights)
+        total_count = sum(w.size for w in self.weights)
+        return float(small_count) / total_count
 
     def save(self, filename):
         """Save the neural network to the file ``filename``."""

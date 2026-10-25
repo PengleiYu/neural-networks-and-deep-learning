@@ -7,21 +7,23 @@ import network2
 import random
 import numpy as np
 
-random.seed(12345678)
-np.random.seed(12345678)
+# random.seed(12345678)
+# np.random.seed(12345678)
 
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
 
 net_sizes = [784,30,10]
 n_train = 50000
+
 training_data = training_data[:n_train]
 n_epochs = 30
 mini_batch_size = 10
 eta = 0.5
-lmbda = 0.0
+lmbda = 0.0   # L2 regularization parameter
+lmbda1 = 0.0  # L1 regularization parameter
 
-run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda{}".format(
-    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda)
+run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}".format(
+    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1)
 
 net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
 
@@ -33,18 +35,22 @@ monitor_evaluation_cost = True
 monitor_training_accuracy = True
 monitor_training_cost = True
 monitor_weight_norm = True
+monitor_weight_sparsity = True
+sparsity_threshold = 1e-2
 
 # SGD2 returns (evaluation_cost, evaluation_accuracy, training_cost,
-# training_accuracy, weight_norm). Any list whose corresponding monitor_*
-# flag above is False comes back empty.
-evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm = net.SGD2(
+# training_accuracy, weight_norm, weight_sparsity). Any list whose
+# corresponding monitor_* flag above is False comes back empty.
+evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm, weight_sparsity = net.SGD2(
     training_data, n_epochs, mini_batch_size, eta=eta,
-    lmbda = lmbda, evaluation_data = validation_data,
+    lmbda = lmbda, lmbda1 = lmbda1, evaluation_data = validation_data,
     monitor_evaluation_accuracy = monitor_evaluation_accuracy,
     monitor_evaluation_cost = monitor_evaluation_cost,
     monitor_training_accuracy = monitor_training_accuracy,
     monitor_training_cost = monitor_training_cost,
     monitor_weight_norm = monitor_weight_norm,
+    monitor_weight_sparsity = monitor_weight_sparsity,
+    sparsity_threshold = sparsity_threshold,
     )
 
 # Epoch count comes from n_epochs, not from any of the (possibly empty) result
@@ -57,6 +63,7 @@ series = [
     ("EvalCost", evaluation_cost, monitor_evaluation_cost),
     ("EvalAcc", evaluation_accuracy, monitor_evaluation_accuracy),
     ("WeightNorm", weight_norm, monitor_weight_norm),
+    ("WeightSparsity", weight_sparsity, monitor_weight_sparsity),
 ]
 active_series = [(name, values) for name, values, monitored in series if monitored]
 
@@ -81,8 +88,7 @@ else:
 
 plot_epochs = epochs[plot_slice]
 
-fig, ((ax_cost, ax_acc), (ax_norm, ax_unused)) = plt.subplots(2, 2, figsize=(10, 8))
-ax_unused.axis("off")
+fig, ((ax_cost, ax_acc), (ax_norm, ax_sparsity)) = plt.subplots(2, 2, figsize=(10, 8))
 
 if monitor_training_cost:
     ax_cost.plot(plot_epochs, training_cost[plot_slice], label="Training cost")
@@ -116,6 +122,14 @@ ax_norm.set_title("Weight norm per epoch")
 if monitor_weight_norm:
     ax_norm.legend()
 
+if monitor_weight_sparsity:
+    ax_sparsity.plot(plot_epochs, weight_sparsity[plot_slice], label="Weight sparsity")
+ax_sparsity.set_xlabel("Epoch")
+ax_sparsity.set_ylabel("Fraction |w| < {}".format(sparsity_threshold))
+ax_sparsity.set_title("Weight sparsity per epoch")
+if monitor_weight_sparsity:
+    ax_sparsity.legend()
+
 plt.tight_layout()
 plt.savefig("network2_test_result_{}.png".format(run_tag))
 
@@ -126,12 +140,15 @@ results = {
     "mini_batch_size": mini_batch_size,
     "eta": eta,
     "lmbda": lmbda,
+    "lmbda1": lmbda1,
     "epochs": list(epochs),
     "evaluation_cost": evaluation_cost,
     "evaluation_accuracy": evaluation_accuracy,
     "training_cost": training_cost,
     "training_accuracy": training_accuracy,
     "weight_norm": weight_norm,
+    "weight_sparsity": weight_sparsity,
+    "sparsity_threshold": sparsity_threshold,
 }
 with open("network2_test_result_{}.json".format(run_tag), "w") as f:
     json.dump(results, f, indent=2)
