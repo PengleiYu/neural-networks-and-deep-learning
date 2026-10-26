@@ -191,6 +191,7 @@ class Network(object):
     def SGD2(self, training_data, epochs, mini_batch_size, eta,
             lmbda = 0.0,
             lmbda1 = 0.0,
+            dropout_prob = 0.0,
             evaluation_data=None,
             monitor_evaluation_cost=False,
             monitor_evaluation_accuracy=False,
@@ -220,7 +221,8 @@ class Network(object):
                 for k in xrange(0, n, mini_batch_size)]
             for mini_batch in mini_batches:
                 self.update_mini_batch2(
-                    mini_batch, eta, lmbda, len(training_data), lmbda1=lmbda1)
+                    mini_batch, eta, lmbda, len(training_data), lmbda1=lmbda1,
+                    dropout_prob=dropout_prob)
             print "Epoch %s training complete" % j
             if monitor_training_cost:
                 cost = self.total_cost2(training_data, lmbda, n, lmbda1=lmbda1)
@@ -272,26 +274,35 @@ class Network(object):
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
 
-    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1):
+    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1, dropout_prob=0.0):
         X = np.hstack([x for x,y in mini_batch])
         Y = np.hstack([y for x,y in mini_batch])
-        nabla_b, nabla_w = self.backprop2(X, Y)
+        nabla_b, nabla_w = self.backprop2(X, Y, dropout_prob=dropout_prob)
         self.weights = [(1-eta*(lmbda/n))*w - eta*(lmbda1/n)*np.sign(w)
                          - (eta/len(mini_batch))*nw
                         for w, nw in zip(self.weights, nabla_w)]
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
-    def backprop2(self, X, Y):
+    def backprop2(self, X, Y, dropout_prob=0.0):
         nabla_b = [np.zeros(b.shape) for b in self.biases]
         nabla_w = [np.zeros(w.shape) for w in self.weights]
+        keep_prob = 1.0 - dropout_prob
         # feedforward
         activation = X
         activations = [X] # list to store all the activations, layer by layer
         zs = [] # list to store all the z vectors, layer by layer
-        for b, w in zip(self.biases, self.weights):
+        masks = [] # inverted-dropout mask per layer; None for the output layer
+        num_weight_layers = len(self.weights)
+        for i, (b, w) in enumerate(zip(self.biases, self.weights)):
             z = np.dot(w, activation)+b
             zs.append(z)
             activation = sigmoid(z)
+            if dropout_prob > 0 and i < num_weight_layers - 1:
+                mask = np.random.rand(*activation.shape) < keep_prob
+                activation = activation * mask / keep_prob
+                masks.append(mask)
+            else:
+                masks.append(None)
             activations.append(activation)
         # backward pass
         delta = (self.cost).delta(zs[-1], activations[-1], Y)
@@ -301,9 +312,12 @@ class Network(object):
             z = zs[-l]
             sp = sigmoid_prime(z)
             delta = np.dot(self.weights[-l+1].transpose(), delta) * sp
+            mask = masks[-l]
+            if mask is not None:
+                delta = delta * mask / keep_prob
             nabla_b[-l] = delta.sum(axis=1,keepdims=True)
             nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
-        return (nabla_b, nabla_w) 
+        return (nabla_b, nabla_w)
     
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the

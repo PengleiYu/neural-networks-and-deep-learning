@@ -13,17 +13,18 @@ import numpy as np
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
 
 net_sizes = [784,30,10]
-n_train = 50000
+n_train = 1000
 
 training_data = training_data[:n_train]
-n_epochs = 30
+n_epochs = 400
 mini_batch_size = 10
 eta = 0.5
-lmbda = 5.0   # L2 regularization parameter
+lmbda = 0.0   # L2 regularization parameter
 lmbda1 = 0.0  # L1 regularization parameter
+dropout_prob = 0.0  # probability of dropping a hidden-layer unit; 0.0 disables dropout
 
-run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}".format(
-    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1)
+run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}".format(
+    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob)
 
 net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
 
@@ -43,7 +44,8 @@ sparsity_threshold = 1e-2
 # corresponding monitor_* flag above is False comes back empty.
 evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm, weight_sparsity = net.SGD2(
     training_data, n_epochs, mini_batch_size, eta=eta,
-    lmbda = lmbda, lmbda1 = lmbda1, evaluation_data = validation_data,
+    lmbda = lmbda, lmbda1 = lmbda1, dropout_prob = dropout_prob,
+    evaluation_data = validation_data,
     monitor_evaluation_accuracy = monitor_evaluation_accuracy,
     monitor_evaluation_cost = monitor_evaluation_cost,
     monitor_training_accuracy = monitor_training_accuracy,
@@ -67,8 +69,8 @@ series = [
 ]
 active_series = [(name, values) for name, values, monitored in series if monitored]
 
-print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={}".format(
-    net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1)
+print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={}".format(
+    net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob)
 print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
 for i, ep in enumerate(epochs):
     columns = [str(ep)]
@@ -143,6 +145,7 @@ results = {
     "eta": eta,
     "lmbda": lmbda,
     "lmbda1": lmbda1,
+    "dropout_prob": dropout_prob,
     "epochs": list(epochs),
     "evaluation_cost": evaluation_cost,
     "evaluation_accuracy": evaluation_accuracy,
