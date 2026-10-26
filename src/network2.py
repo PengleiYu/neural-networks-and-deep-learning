@@ -213,8 +213,28 @@ class Network(object):
         without improvement in the evaluation accuracy. A value of 0
         (the default) disables early stopping. This requires
         ``evaluation_data`` and ``monitor_evaluation_accuracy=True``.
+        When ``patience`` is positive, the network's weights and biases
+        are snapshotted every time the evaluation accuracy improves,
+        and restored to that best snapshot before returning (whether
+        training stopped early or simply ran out of epochs) -- so the
+        network handed back is always the best one seen, not whatever
+        happened to be left after the last epoch trained.
+
+        Note that the returned per-epoch lists (``evaluation_accuracy``,
+        ``weight_norm``, etc.) are the full training record, including
+        any epochs run after the best one while patience was being used
+        up. They are NOT truncated to match the restored network. So
+        after a run with ``patience > 0``, ``weight_norm[-1]`` is the
+        norm at the last epoch trained, not at the network's current
+        (best) weights -- use ``weight_norm[np.argmax(evaluation_accuracy)]``
+        for the value consistent with the returned network.
 
         """
+        if patience > 0:
+            assert monitor_evaluation_accuracy, (
+                "patience > 0 requires monitor_evaluation_accuracy=True; "
+                "otherwise no best-accuracy snapshot is ever taken and "
+                "early stopping silently never triggers.")
         if evaluation_data: n_data = len(evaluation_data)
         n = len(training_data)
         evaluation_cost, evaluation_accuracy = [], []
@@ -223,6 +243,8 @@ class Network(object):
         weight_sparsity = []
         best_accuracy = 0
         no_improvement_count = 0
+        best_weights = None
+        best_biases = None
         for j in xrange(epochs):
             random.shuffle(training_data)
             mini_batches = [
@@ -255,6 +277,8 @@ class Network(object):
                     if accuracy > best_accuracy:
                         best_accuracy = accuracy
                         no_improvement_count = 0
+                        best_weights = [w.copy() for w in self.weights]
+                        best_biases = [b.copy() for b in self.biases]
                     else:
                         no_improvement_count += 1
             if monitor_weight_norm:
@@ -271,6 +295,9 @@ class Network(object):
                 print "Early stopping at epoch {} (no improvement in {} epochs)".format(
                     j, patience)
                 break
+        if patience > 0 and best_weights is not None:
+            self.weights = best_weights
+            self.biases = best_biases
         return evaluation_cost, evaluation_accuracy, \
             training_cost, training_accuracy, weight_norm, weight_sparsity
 
