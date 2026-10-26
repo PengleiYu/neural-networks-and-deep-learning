@@ -1,3 +1,4 @@
+import argparse
 import json
 import matplotlib
 matplotlib.use("Agg")  # no display available in this environment
@@ -10,26 +11,45 @@ import numpy as np
 # random.seed(12345678)
 # np.random.seed(12345678)
 
+def parse_net_sizes(s):
+    return [int(x) for x in s.split(",")]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--net_sizes", type=parse_net_sizes, default=[784, 30, 10],
+                     help="Comma-separated layer sizes, e.g. 784,30,10")
+parser.add_argument("--n_train", type=int, default=1000)
+parser.add_argument("--n_epochs", type=int, default=400)
+parser.add_argument("--mini_batch_size", type=int, default=10)
+parser.add_argument("--eta", type=float, default=0.5)
+parser.add_argument("--lmbda", type=float, default=0.0,
+                     help="L2 regularization parameter")
+parser.add_argument("--lmbda1", type=float, default=0.0,
+                     help="L1 regularization parameter")
+parser.add_argument("--dropout_prob", type=float, default=0.0,
+                     help="Probability of dropping a hidden-layer unit; 0.0 disables dropout")
+parser.add_argument("--plot_last_n_epochs", type=int, default=None,
+                     help="Only plot the last N epochs; omit to plot all epochs")
+parser.add_argument("--sparsity_threshold", type=float, default=1e-2)
+args = parser.parse_args()
+
+net_sizes = args.net_sizes
+n_train = args.n_train
+n_epochs = args.n_epochs
+mini_batch_size = args.mini_batch_size
+eta = args.eta
+lmbda = args.lmbda
+lmbda1 = args.lmbda1
+dropout_prob = args.dropout_prob
+plot_last_n_epochs = args.plot_last_n_epochs
+sparsity_threshold = args.sparsity_threshold
+
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
-
-net_sizes = [784,30,10]
-n_train = 1000
-
 training_data = training_data[:n_train]
-n_epochs = 400
-mini_batch_size = 10
-eta = 0.5
-lmbda = 0.0   # L2 regularization parameter
-lmbda1 = 0.0  # L1 regularization parameter
-dropout_prob = 0.0  # probability of dropping a hidden-layer unit; 0.0 disables dropout
 
 run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}".format(
     "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob)
 
 net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
-
-# Set to an integer (e.g. 200) to only plot the last N epochs; None plots all epochs.
-plot_last_n_epochs = None
 
 monitor_evaluation_accuracy = True
 monitor_evaluation_cost = True
@@ -37,7 +57,6 @@ monitor_training_accuracy = True
 monitor_training_cost = True
 monitor_weight_norm = True
 monitor_weight_sparsity = True
-sparsity_threshold = 1e-2
 
 # SGD2 returns (evaluation_cost, evaluation_accuracy, training_cost,
 # training_accuracy, weight_norm, weight_sparsity). Any list whose
