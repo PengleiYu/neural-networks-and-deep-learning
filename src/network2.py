@@ -199,13 +199,20 @@ class Network(object):
             monitor_training_accuracy=False,
             monitor_weight_norm=False,
             monitor_weight_sparsity=False,
-            sparsity_threshold=1e-2):
+            sparsity_threshold=1e-2,
+            patience=0):
         """Same as ``SGD``, but additionally accepts ``monitor_weight_norm``
         and ``monitor_weight_sparsity``.  When set, the L2 norm of the
         network's weight vector (respectively, the fraction of weights
         with absolute value below ``sparsity_threshold``) is computed at
         the end of each epoch and returned as a fifth (respectively,
         sixth) list, alongside the four lists returned by ``SGD``.
+
+        ``patience`` enables early stopping: if set to a positive
+        integer, training stops once ``patience`` epochs have passed
+        without improvement in the evaluation accuracy. A value of 0
+        (the default) disables early stopping. This requires
+        ``evaluation_data`` and ``monitor_evaluation_accuracy=True``.
 
         """
         if evaluation_data: n_data = len(evaluation_data)
@@ -214,6 +221,8 @@ class Network(object):
         training_cost, training_accuracy = [], []
         weight_norm = []
         weight_sparsity = []
+        best_accuracy = 0
+        no_improvement_count = 0
         for j in xrange(epochs):
             random.shuffle(training_data)
             mini_batches = [
@@ -242,6 +251,12 @@ class Network(object):
                 evaluation_accuracy.append(accuracy)
                 print "Accuracy on evaluation data: {} / {}".format(
                     accuracy, n_data)
+                if patience > 0:
+                    if accuracy > best_accuracy:
+                        best_accuracy = accuracy
+                        no_improvement_count = 0
+                    else:
+                        no_improvement_count += 1
             if monitor_weight_norm:
                 norm = self.total_weight_norm()
                 weight_norm.append(norm)
@@ -252,6 +267,10 @@ class Network(object):
                 print "Weight sparsity (fraction |w| < {}): {}".format(
                     sparsity_threshold, sparsity)
             print
+            if patience > 0 and no_improvement_count >= patience:
+                print "Early stopping at epoch {} (no improvement in {} epochs)".format(
+                    j, patience)
+                break
         return evaluation_cost, evaluation_accuracy, \
             training_cost, training_accuracy, weight_norm, weight_sparsity
 

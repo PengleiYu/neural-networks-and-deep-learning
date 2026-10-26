@@ -30,6 +30,9 @@ parser.add_argument("--dropout_prob", type=float, default=0.0,
 parser.add_argument("--plot_last_n_epochs", type=int, default=None,
                      help="Only plot the last N epochs; omit to plot all epochs")
 parser.add_argument("--sparsity_threshold", type=float, default=1e-2)
+parser.add_argument("--patience", type=int, default=0,
+                     help="Early stopping patience (epochs with no evaluation-accuracy "
+                          "improvement before stopping); 0 disables early stopping")
 args = parser.parse_args()
 
 net_sizes = args.net_sizes
@@ -42,12 +45,13 @@ lmbda1 = args.lmbda1
 dropout_prob = args.dropout_prob
 plot_last_n_epochs = args.plot_last_n_epochs
 sparsity_threshold = args.sparsity_threshold
+patience = args.patience
 
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
 training_data = training_data[:n_train]
 
-run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}".format(
-    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob)
+run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_patience_{}".format(
+    "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience)
 
 net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
 
@@ -72,11 +76,14 @@ evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_n
     monitor_weight_norm = monitor_weight_norm,
     monitor_weight_sparsity = monitor_weight_sparsity,
     sparsity_threshold = sparsity_threshold,
+    patience = patience,
     )
 
-# Epoch count comes from n_epochs, not from any of the (possibly empty) result
-# lists, since unmonitored metrics come back as empty lists.
-epochs = range(1, n_epochs + 1)
+# Epoch count comes from the actual number of epochs run, not n_epochs,
+# since early stopping (patience > 0) can end training before n_epochs is
+# reached. monitor_evaluation_accuracy is hardcoded True above, so
+# evaluation_accuracy's length reliably reflects how many epochs ran.
+epochs = range(1, len(evaluation_accuracy) + 1)
 
 series = [
     ("TrainCost", training_cost, monitor_training_cost),
@@ -88,8 +95,8 @@ series = [
 ]
 active_series = [(name, values) for name, values, monitored in series if monitored]
 
-print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={}".format(
-    net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob)
+print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={} patience={} actual_epochs={}".format(
+    net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, len(epochs))
 print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
 for i, ep in enumerate(epochs):
     columns = [str(ep)]
@@ -165,7 +172,8 @@ results = {
     "lmbda": lmbda,
     "lmbda1": lmbda1,
     "dropout_prob": dropout_prob,
-    "epochs": list(epochs),
+    "patience": patience,
+    "actual_epochs": len(epochs),
     "evaluation_cost": evaluation_cost,
     "evaluation_accuracy": evaluation_accuracy,
     "training_cost": training_cost,
