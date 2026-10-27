@@ -67,21 +67,24 @@ class CrossEntropyCost(object):
 #### Main Network class
 class Network(object):
 
-    def __init__(self, sizes, cost=CrossEntropyCost):
+    def __init__(self, sizes, cost=CrossEntropyCost, weight_init="default"):
         """The list ``sizes`` contains the number of neurons in the respective
         layers of the network.  For example, if the list was [2, 3, 1]
         then it would be a three-layer network, with the first layer
         containing 2 neurons, the second layer 3 neurons, and the
         third layer 1 neuron.  The biases and weights for the network
-        are initialized randomly, using
-        ``self.default_weight_initializer`` (see docstring for that
-        method).
+        are initialized randomly, using ``self.default_weight_initializer``
+        (see docstring for that method), unless ``weight_init="large"``
+        is passed, in which case ``self.large_weight_initializer`` is used
+        instead (kept for comparison -- see its docstring).
 
         """
         self.num_layers = len(sizes)
         self.sizes = sizes
-        # self.default_weight_initializer()
-        self.large_weight_initializer()
+        if weight_init == "large":
+            self.large_weight_initializer()
+        else:
+            self.default_weight_initializer()
         self.cost=cost
 
     def default_weight_initializer(self):

@@ -42,6 +42,14 @@ parser.add_argument("--sparsity_threshold", type=parse_float_list, default=[1e-2
 parser.add_argument("--patience", type=parse_int_list, default=[0],
                      help="Early stopping patience (epochs with no evaluation-accuracy "
                           "improvement before stopping); 0 disables early stopping")
+parser.add_argument("--cost", type=str, default="cross_entropy",
+                     choices=["cross_entropy", "quadratic"],
+                     help="Cost function to use")
+parser.add_argument("--weight_init", type=str, default="default",
+                     choices=["default", "large"],
+                     help="Weight initializer: 'default' is the 1/sqrt(n_in)-scaled "
+                          "initializer, 'large' is the naive N(0,1) initializer kept "
+                          "for comparison")
 parser.add_argument("--group_tag", type=str, default=None,
                      help="Group tag prefix for this run; a unique suffix "
                           "(timestamp+random) is always appended, so repeated "
@@ -93,6 +101,14 @@ cursor.execute("""
         sparsity_threshold  REAL NOT NULL
     )
 """)
+# Older databases (created before cost existed) need a non-destructive
+# migration: add the column with a default, existing rows backfill to that
+# default (cross_entropy was the hardcoded behavior before --cost existed).
+existing_run_columns = [row[1] for row in cursor.execute("PRAGMA table_info(runs)").fetchall()]
+if "cost" not in existing_run_columns:
+    cursor.execute("ALTER TABLE runs ADD COLUMN cost TEXT DEFAULT 'cross_entropy'")
+if "weight_init" not in existing_run_columns:
+    cursor.execute("ALTER TABLE runs ADD COLUMN weight_init TEXT DEFAULT 'default'")
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS epochs (
         run_id              INTEGER NOT NULL REFERENCES runs(run_id),
@@ -116,14 +132,15 @@ conn.commit()
 for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
                    lmbda1, dropout_prob, patience, sparsity_threshold) in enumerate(combos):
 
-    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_patience_{}".format(
-        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience)
+    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_patience_{}_cost_{}_winit_{}".format(
+        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, args.cost, args.weight_init)
 
     print "=== combo {}/{}: {} ===".format(combo_index + 1, len(combos), run_tag)
 
     training_data = full_training_data[:n_train]
 
-    net = network2.Network(net_sizes, cost = network2.CrossEntropyCost)
+    cost_class = network2.QuadraticCost if args.cost == "quadratic" else network2.CrossEntropyCost
+    net = network2.Network(net_sizes, cost = cost_class, weight_init = args.weight_init)
 
     monitor_evaluation_accuracy = True
     monitor_evaluation_cost = True
@@ -185,13 +202,13 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
         INSERT INTO runs (
             created_at, group_tag, run_tag, net_sizes, n_train, n_validation,
             n_epochs_requested, actual_epochs, mini_batch_size, eta,
-            lmbda, lmbda1, dropout_prob, patience, sparsity_threshold
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, cost, weight_init
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.datetime.utcnow().isoformat(), group_tag, run_tag,
         ",".join(str(s) for s in net_sizes), n_train, n_validation,
         n_epochs, len(epochs), mini_batch_size, eta,
-        lmbda, lmbda1, dropout_prob, patience, sparsity_threshold,
+        lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, args.cost, args.weight_init,
     ))
     run_id = cursor.lastrowid
 

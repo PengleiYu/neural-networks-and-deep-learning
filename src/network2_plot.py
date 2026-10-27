@@ -10,12 +10,13 @@ import matplotlib.pyplot as plt
 # per-epoch-curve legend are allowed to slice, facet, or vary on.
 HYPERPARAM_COLUMNS = ["net_sizes", "n_train", "mini_batch_size", "eta",
                       "lmbda", "lmbda1", "dropout_prob", "patience",
-                      "sparsity_threshold"]
+                      "sparsity_threshold", "cost", "weight_init"]
 
 SHORT_NAMES = {"net_sizes": "arch", "n_train": "n_train", "mini_batch_size": "mb",
                "eta": "eta", "lmbda": "lmbda", "lmbda1": "lmbda1",
                "dropout_prob": "dropout", "patience": "patience",
-               "sparsity_threshold": "sp_thresh"}
+               "sparsity_threshold": "sp_thresh", "cost": "cost",
+               "weight_init": "winit"}
 
 def parse_run_ids(s):
     return [int(x) for x in s.split(",")]
@@ -109,7 +110,7 @@ runs = []
 for run_id in run_ids:
     cursor.execute("""
         SELECT run_tag, n_train, n_validation, sparsity_threshold,
-               net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience
+               net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, cost, weight_init
         FROM runs WHERE run_id = ?
     """, (run_id,))
     row = cursor.fetchone()
@@ -118,7 +119,7 @@ for run_id in run_ids:
         print "run_id {} not found in {}".format(run_id, db_path)
         sys.exit(1)
     (run_tag, n_train, n_validation, sparsity_threshold,
-     net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience) = row
+     net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, cost, weight_init) = row
 
     cursor.execute("""
         SELECT epoch, training_cost, training_accuracy, evaluation_cost,
@@ -152,6 +153,8 @@ for run_id in run_ids:
         "lmbda1": lmbda1,
         "dropout_prob": dropout_prob,
         "patience": patience,
+        "cost": cost,
+        "weight_init": weight_init,
         "epochs": epochs[plot_slice],
         "training_cost": training_cost[plot_slice],
         "training_accuracy": [float(a) / n_train for a in training_accuracy[plot_slice]],
