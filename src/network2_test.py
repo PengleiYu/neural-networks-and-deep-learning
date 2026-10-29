@@ -50,6 +50,12 @@ parser.add_argument("--weight_init", type=str, default="default",
                      help="Weight initializer: 'default' is the 1/sqrt(n_in)-scaled "
                           "initializer, 'large' is the naive N(0,1) initializer kept "
                           "for comparison")
+parser.add_argument("--training_data", type=str, default="mnist",
+                     choices=["mnist", "mnist_expanded"],
+                     help="Which training set to load: 'mnist' is the plain 50,000-image "
+                          "set, 'mnist_expanded' is the displaced-copies expansion from "
+                          "expand_mnist.py (../data/mnist_expanded.pkl.gz, must be "
+                          "generated first)")
 parser.add_argument("--group_tag", type=str, default=None,
                      help="Group tag prefix for this run; a unique suffix "
                           "(timestamp+random) is always appended, so repeated "
@@ -74,7 +80,9 @@ group_tag = "{}-{}".format(args.group_tag, unique_suffix) if args.group_tag else
 
 print "Running {} combination(s), group_tag={}".format(len(combos), group_tag)
 
-full_training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
+training_data_filename = ("../data/mnist_expanded.pkl.gz" if args.training_data == "mnist_expanded"
+                           else "../data/mnist.pkl.gz")
+full_training_data, validation_data, test_data = mnist_loader.load_data_wrapper(training_data_filename)
 n_validation = len(validation_data)
 
 db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "network2_experiments.db")
@@ -109,6 +117,8 @@ if "cost" not in existing_run_columns:
     cursor.execute("ALTER TABLE runs ADD COLUMN cost TEXT DEFAULT 'cross_entropy'")
 if "weight_init" not in existing_run_columns:
     cursor.execute("ALTER TABLE runs ADD COLUMN weight_init TEXT DEFAULT 'default'")
+if "training_data" not in existing_run_columns:
+    cursor.execute("ALTER TABLE runs ADD COLUMN training_data TEXT DEFAULT 'mnist'")
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS epochs (
         run_id              INTEGER NOT NULL REFERENCES runs(run_id),
@@ -132,8 +142,8 @@ conn.commit()
 for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
                    lmbda1, dropout_prob, patience, sparsity_threshold) in enumerate(combos):
 
-    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_patience_{}_cost_{}_winit_{}".format(
-        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, args.cost, args.weight_init)
+    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_patience_{}_cost_{}_winit_{}_data_{}".format(
+        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, args.cost, args.weight_init, args.training_data)
 
     print "=== combo {}/{}: {} ===".format(combo_index + 1, len(combos), run_tag)
 
@@ -202,13 +212,13 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
         INSERT INTO runs (
             created_at, group_tag, run_tag, net_sizes, n_train, n_validation,
             n_epochs_requested, actual_epochs, mini_batch_size, eta,
-            lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, cost, weight_init
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, cost, weight_init, training_data
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.datetime.utcnow().isoformat(), group_tag, run_tag,
         ",".join(str(s) for s in net_sizes), n_train, n_validation,
         n_epochs, len(epochs), mini_batch_size, eta,
-        lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, args.cost, args.weight_init,
+        lmbda, lmbda1, dropout_prob, patience, sparsity_threshold, args.cost, args.weight_init, args.training_data,
     ))
     run_id = cursor.lastrowid
 

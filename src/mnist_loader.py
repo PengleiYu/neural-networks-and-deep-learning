@@ -16,7 +16,7 @@ import gzip
 # Third-party libraries
 import numpy as np
 
-def load_data():
+def load_data(filename='../data/mnist.pkl.gz'):
     """Return the MNIST data as a tuple containing the training data,
     the validation data, and the test data.
 
@@ -34,17 +34,21 @@ def load_data():
     The ``validation_data`` and ``test_data`` are similar, except
     each contains only 10,000 images.
 
+    ``filename`` defaults to the plain MNIST pickle, but can point at
+    e.g. ``../data/mnist_expanded.pkl.gz`` (see ``expand_mnist.py``),
+    which has the same 3-tuple shape with a larger training set.
+
     This is a nice data format, but for use in neural networks it's
     helpful to modify the format of the ``training_data`` a little.
     That's done in the wrapper function ``load_data_wrapper()``, see
     below.
     """
-    f = gzip.open('../data/mnist.pkl.gz', 'rb')
+    f = gzip.open(filename, 'rb')
     training_data, validation_data, test_data = cPickle.load(f)
     f.close()
     return (training_data, validation_data, test_data)
 
-def load_data_wrapper():
+def load_data_wrapper(filename='../data/mnist.pkl.gz'):
     """Return a tuple containing ``(training_data, validation_data,
     test_data)``. Based on ``load_data``, but the format is more
     convenient for use in our implementation of neural networks.
@@ -65,7 +69,7 @@ def load_data_wrapper():
     the training data and the validation / test data.  These formats
     turn out to be the most convenient for use in our neural network
     code."""
-    tr_d, va_d, te_d = load_data()
+    tr_d, va_d, te_d = load_data(filename)
     training_inputs = [np.reshape(x, (784, 1)) for x in tr_d[0]]
     training_results = [vectorized_result(y) for y in tr_d[1]]
     training_data = zip(training_inputs, training_results)
