@@ -235,6 +235,7 @@ class Network(object):
             lmbda1 = 0.0,
             dropout_prob = 0.0,
             mu = 0.0,
+            nesterov = False,
             evaluation_data=None,
             monitor_evaluation_cost=False,
             monitor_evaluation_accuracy=False,
@@ -301,6 +302,12 @@ class Network(object):
         momentum and reduces to the same update as before momentum was
         added.
 
+        ``nesterov`` switches that momentum to Nesterov's variant: the
+        backprop gradient is evaluated at the "lookahead" point
+        ``w + mu*velocity`` instead of at the current ``w`` (see
+        ``update_mini_batch2``). Ignored when ``mu=0.0`` (lookahead point
+        equals the current point, so there's nothing to switch).
+
         Note that the returned per-epoch lists (``evaluation_accuracy``,
         ``weight_norm``, etc.) are the full training record, including
         any epochs run after the best one while patience (or the eta
@@ -347,7 +354,7 @@ class Network(object):
             for mini_batch in mini_batches:
                 self.update_mini_batch2(
                     mini_batch, eta, lmbda, len(training_data), lmbda1=lmbda1,
-                    dropout_prob=dropout_prob, mu=mu)
+                    dropout_prob=dropout_prob, mu=mu, nesterov=nesterov)
             print "Epoch %s training complete" % j
             if monitor_training_cost:
                 cost = self.total_cost2(training_data, lmbda, n, lmbda1=lmbda1)
@@ -427,10 +434,22 @@ class Network(object):
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
 
-    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1, dropout_prob=0.0, mu=0.0):
+    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1, dropout_prob=0.0, mu=0.0, nesterov=False):
         X = np.hstack([x for x,y in mini_batch])
         Y = np.hstack([y for x,y in mini_batch])
-        nabla_b, nabla_w = self.backprop2(X, Y, dropout_prob=dropout_prob)
+        if nesterov and mu != 0.0:
+            # Nesterov: backprop's gradient is evaluated at the "lookahead"
+            # point w + mu*velocity, not at the current w -- temporarily
+            # shift there, compute the gradient, then shift back. The L2/L1
+            # regularization terms below still use the current (unshifted)
+            # self.weights, matching the usual momentum+weight-decay recipe.
+            orig_weights, orig_biases = self.weights, self.biases
+            self.weights = [w + mu*v for w, v in zip(self.weights, self.velocity_w)]
+            self.biases = [b + mu*v for b, v in zip(self.biases, self.velocity_b)]
+            nabla_b, nabla_w = self.backprop2(X, Y, dropout_prob=dropout_prob)
+            self.weights, self.biases = orig_weights, orig_biases
+        else:
+            nabla_b, nabla_w = self.backprop2(X, Y, dropout_prob=dropout_prob)
         grad_w = [(lmbda/n)*w + (lmbda1/n)*np.sign(w) + nw/len(mini_batch)
                   for w, nw in zip(self.weights, nabla_w)]
         grad_b = [nb/len(mini_batch) for nb in nabla_b]

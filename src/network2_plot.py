@@ -9,13 +9,14 @@ import matplotlib.pyplot as plt
 # Hyperparameter columns on the `runs` table that summary mode / the
 # per-epoch-curve legend are allowed to slice, facet, or vary on.
 HYPERPARAM_COLUMNS = ["net_sizes", "n_train", "mini_batch_size", "eta",
-                      "lmbda", "lmbda1", "dropout_prob", "patience",
+                      "lmbda", "lmbda1", "dropout_prob", "mu", "nesterov", "patience",
                       "sparsity_threshold", "cost", "weight_init", "training_data",
                       "eta_decay_patience"]
 
 SHORT_NAMES = {"net_sizes": "arch", "n_train": "n_train", "mini_batch_size": "mb",
                "eta": "eta", "lmbda": "lmbda", "lmbda1": "lmbda1",
-               "dropout_prob": "dropout", "patience": "patience",
+               "dropout_prob": "dropout", "mu": "mu", "nesterov": "nesterov",
+               "patience": "patience",
                "sparsity_threshold": "sp_thresh", "cost": "cost",
                "weight_init": "winit", "training_data": "data",
                "eta_decay_patience": "eta_decay_pat"}
@@ -112,7 +113,7 @@ runs = []
 for run_id in run_ids:
     cursor.execute("""
         SELECT run_tag, n_train, n_validation, sparsity_threshold,
-               net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, cost, weight_init, training_data,
+               net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, nesterov, patience, cost, weight_init, training_data,
                eta_decay_patience
         FROM runs WHERE run_id = ?
     """, (run_id,))
@@ -122,7 +123,7 @@ for run_id in run_ids:
         print "run_id {} not found in {}".format(run_id, db_path)
         sys.exit(1)
     (run_tag, n_train, n_validation, sparsity_threshold,
-     net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, patience, cost, weight_init, training_data,
+     net_sizes, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, nesterov, patience, cost, weight_init, training_data,
      eta_decay_patience) = row
 
     cursor.execute("""
@@ -156,6 +157,8 @@ for run_id in run_ids:
         "lmbda": lmbda,
         "lmbda1": lmbda1,
         "dropout_prob": dropout_prob,
+        "mu": mu,
+        "nesterov": nesterov,
         "patience": patience,
         "cost": cost,
         "weight_init": weight_init,

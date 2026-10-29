@@ -42,6 +42,11 @@ parser.add_argument("--mu", type=parse_float_list, default=[0.0],
                      help="Momentum coefficient for SGD2's velocity-based update; 0.0 "
                           "(default) disables momentum and reduces to plain SGD. Velocity "
                           "persists across mini-batches/epochs within one SGD2 call")
+parser.add_argument("--nesterov", action="store_true",
+                     help="Use Nesterov's variant of momentum (gradient evaluated at the "
+                          "lookahead point w+mu*velocity instead of at w); single-value flag "
+                          "like --cost/--weight_init, not part of the sweep -- compare against "
+                          "classic momentum across separate invocations. No effect when mu=0.0")
 parser.add_argument("--sparsity_threshold", type=parse_float_list, default=[1e-2])
 parser.add_argument("--patience", type=parse_int_list, default=[0],
                      help="Early stopping patience (epochs with no evaluation-accuracy "
@@ -164,6 +169,8 @@ if "min_eta" not in existing_run_columns:
     cursor.execute("ALTER TABLE runs ADD COLUMN min_eta REAL DEFAULT 0.0")
 if "mu" not in existing_run_columns:
     cursor.execute("ALTER TABLE runs ADD COLUMN mu REAL DEFAULT 0.0")
+if "nesterov" not in existing_run_columns:
+    cursor.execute("ALTER TABLE runs ADD COLUMN nesterov INTEGER DEFAULT 0")
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS epochs (
         run_id              INTEGER NOT NULL REFERENCES runs(run_id),
@@ -188,8 +195,8 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
                    lmbda1, dropout_prob, mu, patience, sparsity_threshold,
                    eta_decay_patience, eta_decay_factor, max_eta_decays, min_eta) in enumerate(combos):
 
-    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_mu_{}_patience_{}_etadecay_{}_{}_{}_min_{}_cost_{}_winit_{}_data_{}".format(
-        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, patience,
+    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_mu_{}_nesterov_{}_patience_{}_etadecay_{}_{}_{}_min_{}_cost_{}_winit_{}_data_{}".format(
+        "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, args.nesterov, patience,
         eta_decay_patience, eta_decay_factor, max_eta_decays, min_eta, args.cost, args.weight_init, args.training_data)
 
     print "=== combo {}/{}: {} ===".format(combo_index + 1, len(combos), run_tag)
@@ -214,7 +221,7 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
     # whose corresponding monitor_* flag above is False comes back empty.
     evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm, weight_sparsity, final_eta = net.SGD2(
         training_data, n_epochs, mini_batch_size, eta=eta,
-        lmbda = lmbda, lmbda1 = lmbda1, dropout_prob = dropout_prob, mu = mu,
+        lmbda = lmbda, lmbda1 = lmbda1, dropout_prob = dropout_prob, mu = mu, nesterov = args.nesterov,
         evaluation_data = validation_data,
         monitor_evaluation_accuracy = monitor_evaluation_accuracy,
         monitor_evaluation_cost = monitor_evaluation_cost,
@@ -246,8 +253,8 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
     ]
     active_series = [(name, values) for name, values, monitored in series if monitored]
 
-    print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={} mu={} patience={} eta_decay_patience={} min_eta={} final_eta={} actual_epochs={}".format(
-        net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, patience, eta_decay_patience, min_eta, final_eta, len(epochs))
+    print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={} mu={} nesterov={} patience={} eta_decay_patience={} min_eta={} final_eta={} actual_epochs={}".format(
+        net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, args.nesterov, patience, eta_decay_patience, min_eta, final_eta, len(epochs))
     print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
     for i, ep in enumerate(epochs):
         columns = [str(ep)]
@@ -266,14 +273,14 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
         INSERT INTO runs (
             created_at, group_tag, run_tag, net_sizes, n_train, n_validation,
             n_epochs_requested, actual_epochs, mini_batch_size, eta,
-            lmbda, lmbda1, dropout_prob, mu, patience, sparsity_threshold, cost, weight_init, training_data,
+            lmbda, lmbda1, dropout_prob, mu, nesterov, patience, sparsity_threshold, cost, weight_init, training_data,
             eta_decay_patience, eta_decay_factor, max_eta_decays, final_eta, min_eta
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.datetime.utcnow().isoformat(), group_tag, run_tag,
         ",".join(str(s) for s in net_sizes), n_train, n_validation,
         n_epochs, len(epochs), mini_batch_size, eta,
-        lmbda, lmbda1, dropout_prob, mu, patience, sparsity_threshold, args.cost, args.weight_init, args.training_data,
+        lmbda, lmbda1, dropout_prob, mu, int(args.nesterov), patience, sparsity_threshold, args.cost, args.weight_init, args.training_data,
         eta_decay_patience, eta_decay_factor, max_eta_decays, final_eta, min_eta,
     ))
     run_id = cursor.lastrowid
