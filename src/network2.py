@@ -242,13 +242,20 @@ class Network(object):
             monitor_weight_norm=False,
             monitor_weight_sparsity=False,
             sparsity_threshold=1e-2,
-            patience=0):
+            patience=0,
+            eta_decay_patience=0,
+            eta_decay_factor=2.0,
+            max_eta_decays=4,
+            min_eta=0.0):
         """Same as ``SGD``, but additionally accepts ``monitor_weight_norm``
         and ``monitor_weight_sparsity``.  When set, the L2 norm of the
         network's weight vector (respectively, the fraction of weights
         with absolute value below ``sparsity_threshold``) is computed at
         the end of each epoch and returned as a fifth (respectively,
-        sixth) list, alongside the four lists returned by ``SGD``.
+        sixth) list, alongside the four lists returned by ``SGD``. A
+        seventh return value, ``eta``, is always included -- the learning
+        rate in effect during the last epoch actually trained (equal to
+        the ``eta`` argument unless ``eta_decay_patience`` lowered it).
 
         ``patience`` enables early stopping: if set to a positive
         integer, training stops once ``patience`` epochs have passed
@@ -262,14 +269,38 @@ class Network(object):
         network handed back is always the best one seen, not whatever
         happened to be left after the last epoch trained.
 
+        ``eta_decay_patience`` is a different stopping philosophy -- the
+        book's variable learning rate schedule -- and is mutually
+        exclusive with ``patience`` (set at most one of the two; both
+        default to 0, i.e. off). If set to a positive integer, then once
+        that many epochs have passed without improvement in the
+        evaluation accuracy, ``eta`` is divided by ``eta_decay_factor``
+        and the no-improvement count resets, so the next decay needs
+        another full ``eta_decay_patience`` quiet epochs. Decaying stops,
+        and a further ``eta_decay_patience`` quiet epochs stop training
+        for good (with the same best-snapshot rollback behaviour as
+        ``patience``), once EITHER ``max_eta_decays`` decays have been
+        used up OR the next decay would take ``eta`` below ``min_eta``
+        (whichever limit is hit first; ``min_eta=0.0``, the default,
+        disables this second check, matching the book's own recipe of
+        decaying by a fixed total factor regardless of the starting
+        ``eta``). ``min_eta`` is useful when comparing runs that start
+        from different initial ``eta`` values and you want them to all
+        polish down to the same absolute step size rather than each
+        stopping after the same *number* of halvings -- see
+        overfitting-experiments-log.md section 4.20 for why that
+        mattered here.
+
         Note that the returned per-epoch lists (``evaluation_accuracy``,
         ``weight_norm``, etc.) are the full training record, including
-        any epochs run after the best one while patience was being used
-        up. They are NOT truncated to match the restored network. So
-        after a run with ``patience > 0``, ``weight_norm[-1]`` is the
-        norm at the last epoch trained, not at the network's current
-        (best) weights -- use ``weight_norm[np.argmax(evaluation_accuracy)]``
-        for the value consistent with the returned network.
+        any epochs run after the best one while patience (or the eta
+        schedule's quiet-epoch budget) was being used up. They are NOT
+        truncated to match the restored network. So after a run with
+        ``patience > 0`` or ``eta_decay_patience > 0``, ``weight_norm[-1]``
+        is the norm at the last epoch trained, not at the network's
+        current (best) weights -- use
+        ``weight_norm[np.argmax(evaluation_accuracy)]`` for the value
+        consistent with the returned network.
 
         """
         if patience > 0:
@@ -277,6 +308,14 @@ class Network(object):
                 "patience > 0 requires monitor_evaluation_accuracy=True; "
                 "otherwise no best-accuracy snapshot is ever taken and "
                 "early stopping silently never triggers.")
+        if eta_decay_patience > 0:
+            assert monitor_evaluation_accuracy, (
+                "eta_decay_patience > 0 requires monitor_evaluation_accuracy=True; "
+                "otherwise no best-accuracy snapshot is ever taken and "
+                "the schedule silently never triggers.")
+            assert patience == 0, (
+                "eta_decay_patience and patience are two different "
+                "stopping rules -- set at most one of them.")
         if evaluation_data: n_data = len(evaluation_data)
         n = len(training_data)
         evaluation_cost, evaluation_accuracy = [], []
@@ -285,6 +324,7 @@ class Network(object):
         weight_sparsity = []
         best_accuracy = 0
         no_improvement_count = 0
+        decay_count = 0
         best_weights = None
         best_biases = None
         for j in xrange(epochs):
@@ -315,7 +355,7 @@ class Network(object):
                 evaluation_accuracy.append(accuracy)
                 print "Accuracy on evaluation data: {} / {}".format(
                     accuracy, n_data)
-                if patience > 0:
+                if patience > 0 or eta_decay_patience > 0:
                     if accuracy > best_accuracy:
                         best_accuracy = accuracy
                         no_improvement_count = 0
@@ -337,11 +377,24 @@ class Network(object):
                 print "Early stopping at epoch {} (no improvement in {} epochs)".format(
                     j, patience)
                 break
-        if patience > 0 and best_weights is not None:
+            if eta_decay_patience > 0 and no_improvement_count >= eta_decay_patience:
+                next_eta = eta / eta_decay_factor
+                can_decay = decay_count < max_eta_decays and (min_eta <= 0 or next_eta >= min_eta)
+                if can_decay:
+                    eta = next_eta
+                    decay_count += 1
+                    no_improvement_count = 0
+                    print "No improvement in {} epochs -- decaying eta to {} ({}/{})".format(
+                        eta_decay_patience, eta, decay_count, max_eta_decays)
+                else:
+                    print "Early stopping at epoch {} (no improvement in {} epochs, eta already decayed {} times to {})".format(
+                        j, eta_decay_patience, decay_count, eta)
+                    break
+        if (patience > 0 or eta_decay_patience > 0) and best_weights is not None:
             self.weights = best_weights
             self.biases = best_biases
         return evaluation_cost, evaluation_accuracy, \
-            training_cost, training_accuracy, weight_norm, weight_sparsity
+            training_cost, training_accuracy, weight_norm, weight_sparsity, eta
 
     def update_mini_batch(self, mini_batch, eta, lmbda, n):
         """Update the network's weights and biases by applying gradient
