@@ -13,6 +13,11 @@ parser.add_argument("--group_tag_prefix", type=str, default="exp_",
                      help="Only backtest runs whose group_tag starts with this prefix")
 parser.add_argument("--patience_values", type=parse_int_list, default=[5, 10, 20],
                      help="Comma-separated patience values to simulate")
+parser.add_argument("--group_by", choices=["group_tag", "net_sizes"], default="group_tag",
+                     help="How to bucket the per-group breakdown: by experiment group_tag "
+                          "(default, i.e. by purpose -- a tag may mix several architectures) "
+                          "or by net_sizes (i.e. by actual architecture, regardless of which "
+                          "experiment/regularization it came from)")
 args = parser.parse_args()
 
 db_path = args.db
@@ -26,7 +31,7 @@ cursor = conn.cursor()
 # was generated) can be backtested -- a run that already stopped early is
 # missing the "what would have happened if we kept training" epochs.
 cursor.execute("""
-    SELECT run_id, group_tag, run_tag, actual_epochs, n_validation
+    SELECT run_id, group_tag, run_tag, actual_epochs, n_validation, net_sizes
     FROM runs
     WHERE group_tag LIKE ? AND patience = 0
     ORDER BY run_id
@@ -66,7 +71,7 @@ def simulate_early_stop(evaluation_accuracy, patience):
 per_patience_results = dict((p, []) for p in args.patience_values)
 per_group_per_patience = {}
 
-for run_id, group_tag, run_tag, actual_epochs, n_validation in runs:
+for run_id, group_tag, run_tag, actual_epochs, n_validation, net_sizes in runs:
     cursor.execute("""
         SELECT evaluation_accuracy FROM epochs WHERE run_id = ? ORDER BY epoch
     """, (run_id,))
@@ -76,7 +81,7 @@ for run_id, group_tag, run_tag, actual_epochs, n_validation in runs:
 
     full_schedule_accuracy = evaluation_accuracy[-1]
     best_ever_accuracy = max(evaluation_accuracy)
-    group_label = logical_group(group_tag)
+    group_label = net_sizes if args.group_by == "net_sizes" else logical_group(group_tag)
 
     # Raw counts -> percentage points, using this run's own validation set size.
     to_pp = lambda raw_count_diff: 100.0 * raw_count_diff / n_validation

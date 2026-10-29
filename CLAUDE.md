@@ -12,8 +12,11 @@ that, this fork adds an experiment/CLI layer around `network2.py` for working th
 material (regularization, overfitting, weight initialization) hands-on.
 
 The working goal is to learn the book, not to run a research project. If asked to extend the experiment
-tooling further, prefer the book's own style — single run, look at the result, build intuition — over
-statistically rigorous multi-repeat/grid-sweep work unless explicitly asked for that depth.
+tooling further, prefer the book's own style — run each config 3 times (cheap now thanks to `SGD2`'s
+`patience` early stopping — see `overfitting-experiments-log.md` section 4.18 for why 3 reps, and which
+`patience` value to use: 10 with no regularization, 15 once L2/L1/dropout is added), look at the result,
+build intuition — over statistically rigorous multi-repeat/grid-sweep work unless explicitly asked for
+that depth.
 
 ## Language version and runtime
 
@@ -57,18 +60,25 @@ later Theano versions and the upstream README explicitly says it won't be.
   to the best snapshot at the end of training — the returned network is always the best-seen one, not the
   last epoch. Note the per-epoch arrays it returns (`evaluation_accuracy`, `weight_norm`, ...) are the *full*
   training record, not truncated at the best epoch — to get the value matching the returned (rolled-back)
-  network, index with `np.argmax(evaluation_accuracy)`, not `[-1]`.
+  network, index with `np.argmax(evaluation_accuracy)`, not `[-1]`. `patience=10` is enough with no
+  regularization; once L2/L1/dropout is in play, use `patience=15` (see `overfitting-experiments-log.md`
+  section 4.18 for the backtest behind both numbers).
 - `src/network3.py` / `src/conv.py` — Chapter 6 convolutional network built on Theano (conv/pool layers,
   ReLU support). Not yet exercised in this fork's experiment log.
 - `src/mnist_loader.py` — loads `data/mnist.pkl.gz` into train/validation/test splits; `load_data_wrapper()`
-  is the form the `Network` classes expect.
+  is the form the `Network` classes expect. Takes an optional `filename` to load `data/mnist_expanded.pkl.gz`
+  instead (see `--training_data` below).
+- `src/expand_mnist.py` — one-off data augmentation: displaces each of the 50,000 training images by 1px in
+  each of 4 directions to build a 250,000-image set, saved to `data/mnist_expanded.pkl.gz` (gitignored, like
+  `mnist.pkl.gz`; regenerate with `python expand_mnist.py` in the `py27` container if missing — a few minutes).
 - `src/network2_test.py` — CLI harness around `network2.Network`. Every hyperparameter flag
   (`--net_sizes`, `--n_train`, `--n_epochs`, `--mini_batch_size`, `--eta`, `--lmbda`, `--lmbda1`,
   `--dropout_prob`, `--patience`, `--sparsity_threshold`) takes a comma-separated list (semicolon-separated
   for `--net_sizes` to separate whole architectures, e.g. `784,30,10;784,100,10`); the script runs the full
   Cartesian product of all lists in one invocation and writes one row per run (+ one row per epoch) into
-  `src/network2_experiments.db` (SQLite, gitignored). `--cost` and `--weight_init` are single-value choices,
-  *not* part of the sweep — compare them across separate invocations. Because it's a Cartesian product,
+  `src/network2_experiments.db` (SQLite, gitignored). `--cost` (default `cross_entropy`), `--weight_init`
+  (default `default`), and `--training_data {mnist,mnist_expanded}` (default `mnist`) are single-value
+  choices, *not* part of the sweep — compare them across separate invocations. Because it's a Cartesian product,
   `--lmbda` and `--lmbda1` cannot be swept as paired tuples in one call — sweep one dimension at a time if
   you need specific (λ, λ1) pairs. Every invocation gets a `group_tag` (your `--group_tag` prefix, if given,
   plus an always-appended timestamp+random suffix) for later batch retrieval; query by prefix (`LIKE
@@ -91,13 +101,15 @@ later Theano versions and the upstream README explicitly says it won't be.
   train/val loss divergence as the primary signal, why loss leads accuracy, weight-norm growth as a
   structural indicator.
 - [overfitting-experiments-log.md](overfitting-experiments-log.md) — session-handoff log (in Chinese) of
-  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (data
-  augmentation, softmax + log-likelihood output layer, momentum SGD, tanh/ReLU neurons). Read this first
-  when resuming experiment work — it records the current direction (follow the book chapter-by-chapter,
-  single-run intuition over rigorous sweeps) and avoids re-deriving context from scratch.
+  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (softmax +
+  log-likelihood output layer, momentum SGD, tanh/ReLU neurons — data augmentation is done, see section
+  4.16). Read this first when resuming experiment work — it records the current direction (follow the book
+  chapter-by-chapter, 3-repeat intuition over rigorous grid sweeps) and avoids re-deriving context from
+  scratch.
 
 ## Data
 
 `data/mnist.pkl.gz` is the full MNIST dataset pickle the book's loader expects — already present, don't
-regenerate it. `src/network2_experiments.db` and `*.pkl`/`*.db` files are gitignored; don't expect them to be
-committed or to survive a fresh clone.
+regenerate it. `data/mnist_expanded.pkl.gz` is the augmented 250,000-image training set built by
+`src/expand_mnist.py` (see Architecture above); regenerate it the same way if missing. `src/network2_experiments.db`
+and `*.pkl`/`*.db` files are gitignored; don't expect them to be committed or to survive a fresh clone.
