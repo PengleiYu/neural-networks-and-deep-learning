@@ -234,6 +234,7 @@ class Network(object):
             lmbda = 0.0,
             lmbda1 = 0.0,
             dropout_prob = 0.0,
+            mu = 0.0,
             evaluation_data=None,
             monitor_evaluation_cost=False,
             monitor_evaluation_accuracy=False,
@@ -291,6 +292,15 @@ class Network(object):
         overfitting-experiments-log.md section 4.20 for why that
         mattered here.
 
+        ``mu`` enables momentum: when positive (and less than 1), each
+        mini-batch update accumulates a velocity (``self.velocity_w``/
+        ``self.velocity_b``, initialized to zero at the start of this
+        call and persisting across mini-batches and epochs within it)
+        instead of jumping straight to the plain gradient step -- see
+        ``update_mini_batch2``. ``mu=0.0`` (the default) disables
+        momentum and reduces to the same update as before momentum was
+        added.
+
         Note that the returned per-epoch lists (``evaluation_accuracy``,
         ``weight_norm``, etc.) are the full training record, including
         any epochs run after the best one while patience (or the eta
@@ -327,6 +337,8 @@ class Network(object):
         decay_count = 0
         best_weights = None
         best_biases = None
+        self.velocity_w = [np.zeros(w.shape) for w in self.weights]
+        self.velocity_b = [np.zeros(b.shape) for b in self.biases]
         for j in xrange(epochs):
             random.shuffle(training_data)
             mini_batches = [
@@ -335,7 +347,7 @@ class Network(object):
             for mini_batch in mini_batches:
                 self.update_mini_batch2(
                     mini_batch, eta, lmbda, len(training_data), lmbda1=lmbda1,
-                    dropout_prob=dropout_prob)
+                    dropout_prob=dropout_prob, mu=mu)
             print "Epoch %s training complete" % j
             if monitor_training_cost:
                 cost = self.total_cost2(training_data, lmbda, n, lmbda1=lmbda1)
@@ -415,15 +427,18 @@ class Network(object):
         self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
 
-    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1, dropout_prob=0.0):
+    def update_mini_batch2(self, mini_batch, eta, lmbda, n, lmbda1, dropout_prob=0.0, mu=0.0):
         X = np.hstack([x for x,y in mini_batch])
         Y = np.hstack([y for x,y in mini_batch])
         nabla_b, nabla_w = self.backprop2(X, Y, dropout_prob=dropout_prob)
-        self.weights = [(1-eta*(lmbda/n))*w - eta*(lmbda1/n)*np.sign(w)
-                         - (eta/len(mini_batch))*nw
-                        for w, nw in zip(self.weights, nabla_w)]
-        self.biases = [b-(eta/len(mini_batch))*nb
-                       for b, nb in zip(self.biases, nabla_b)]
+        grad_w = [(lmbda/n)*w + (lmbda1/n)*np.sign(w) + nw/len(mini_batch)
+                  for w, nw in zip(self.weights, nabla_w)]
+        grad_b = [nb/len(mini_batch) for nb in nabla_b]
+        self.velocity_w = [mu*v - eta*gw for v, gw in zip(self.velocity_w, grad_w)]
+        self.velocity_b = [mu*v - eta*gb for v, gb in zip(self.velocity_b, grad_b)]
+        self.weights = [w+v for w, v in zip(self.weights, self.velocity_w)]
+        self.biases = [b+v for b, v in zip(self.biases, self.velocity_b)]
+
     def backprop2(self, X, Y, dropout_prob=0.0):
         nabla_b = [np.zeros(b.shape) for b in self.biases]
         nabla_w = [np.zeros(w.shape) for w in self.weights]

@@ -38,6 +38,16 @@ per process so they don't fight each other for cores:
 docker exec -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 py27 sh -c "..."
 ```
 
+**When Claude is the one driving a sweep, don't hand the comma-separated-list form (see `--mu`/`--lmbda`/etc.
+under `src/network2_test.py` in Architecture below) a list of repeats or sweep values and call it "parallel."**
+That syntax exists for a human typing one command by hand; the script still walks the whole combination list
+*sequentially* inside a single process, so most cores sit idle regardless of how many `docker exec` processes
+you've split across. To actually use multiple cores, split every combination (each repeat, each swept value)
+into its own single-value `docker exec` invocation, launched from a shell `for` loop with `&` + `wait` (see
+`overfitting-experiments-log.md` section 6 for parallel command templates) — one process per combination, not
+one process per comma-list. Reserve the comma-list form for small, quick, single-process sweeps where the
+sequential cost doesn't matter.
+
 For a one-off analysis script you don't want to add to the repo, pipe it over stdin rather than `docker cp`
 (the container only sees paths under `/w`, not arbitrary host paths):
 
@@ -106,16 +116,25 @@ later Theano versions and the upstream README explicitly says it won't be.
   train/val loss divergence as the primary signal, why loss leads accuracy, weight-norm growth as a
   structural indicator.
 - [overfitting-experiments-log.md](overfitting-experiments-log.md) — session-handoff log (in Chinese) of
-  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (momentum
-  SGD, tanh/ReLU neurons — data augmentation is done, see section 4.16; softmax + log-likelihood output layer
-  is done, see section 4.19). Read this first when resuming experiment work — it records the current direction (follow the book
+  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (tanh/ReLU
+  neurons — data augmentation is done, see section 4.16; softmax + log-likelihood output layer is done, see
+  section 4.19; momentum-based SGD is done, see section 4.21 -- momentum amplifies the effective step size by
+  `1/(1-mu)`, so reusing the repo's no-momentum η hurts as mu grows, but with η retuned down accordingly
+  (mu=0.9's best η is ~0.005-0.01 here) it gives a modest, noise-adjacent improvement over no momentum).
+  Read this first when resuming experiment work — it records the current direction (follow the book
   chapter-by-chapter, 3-repeat intuition over rigorous grid sweeps) and avoids re-deriving context from
   scratch.
 - [theory-notes.md](theory-notes.md) — deep-dive theory notes (in Chinese), organized by book chapter,
   for conceptual questions explored beyond what's needed to run experiments (e.g. chapter 3.6: why Hessian/
   second-order methods don't scale, the Baur–Strassen theorem and why gradients are "free" via backprop,
   what makes a function representable as an arithmetic circuit). Separate from `overfitting-notes.md` (scoped
-  to overfitting diagnosis) and the experiments log (execution record, not theory).
+  to overfitting diagnosis) and the experiments log (execution record, not theory). **Standing rule: after any
+  theoretical discussion in conversation (derivations, physical/mathematical analogies, proofs, convergence
+  arguments) goes beyond a quick one-off remark, write up the knowledge points here before considering the
+  discussion finished** — don't let it live only in chat history. Add a new numbered subsection under the
+  relevant chapter (or a new chapter section if none exists yet), matching the existing style: dense bolded-
+  lead-in paragraphs, equations in code blocks, cross-references to the experiments log for anything that was
+  also empirically tested.
 
 ## Data
 
