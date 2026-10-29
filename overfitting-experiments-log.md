@@ -11,11 +11,11 @@
 - 优先级转向**把书的其余内容过一遍**，按书的章节顺序推进，技术点用书里自己的风格——**跑3次重复、看效果、建立直觉**——来体验，不追求统计严谨性，和之前那套方法论刻意区分开。**（2026-10-29更新：原来是"单次跑一遍"，现在改成默认3次——配合`SGD2`的`patience`早停机制，重复3次不会明显增加耗时，却能避免单次运行里偶然噪声误导判断，见4.9/4.17/4.18节的早停验证过程里反复踩到这个坑。3次只是过滤"均值噪声"的下限，解决不了小概率的尾部异常，但那类问题不是"单次建直觉"这个阶段要操心的事，见4.18节）。**
 - 之前启动的"宽度300×深度1/2/3"研究批次（见第3节数据状态、第4.11节）如果还没跑完，跑完后可以把结果简单归档进第4节，但**不要**以此为由继续往这个方向深挖（比如不要再去扫λ网格找转折点、不要再去补h=100的L1 vs dropout平局之类）。第5节里那些"深度研究"性质的待办（2/3/4项）目前处于暂停状态，不是默认要做的事。
 
-**接下来要做的事（按书的章节顺序，第3章剩余技术点）**——**截至本节更新时，前3项已完成，详见第5节的完整待办列表和进度**：
+**接下来要做的事（按书的章节顺序，第3章剩余技术点）**——**截至本节更新时，前4项已完成，详见第5节的完整待办列表和进度**：
 1. ~~二次代价函数(QuadraticCost) vs 交叉熵代价函数(CrossEntropyCost)对比~~ ——**已完成，见4.13节**。书里的经典演示（神经元初始"错得离谱"时二次代价学习明显变慢）被单神经元demo完美复现，MNIST网络级别也验证了方向一致但幅度温和得多。
 2. ~~权重初始化对比：`default_weight_initializer` vs `large_weight_initializer`~~ ——**已完成，见4.14/4.15节**。顺带发现并修复了`Network.__init__`硬编码`large_weight_initializer`的遗留bug（`default_weight_initializer`现在才是真正默认值），也回答了4.11节"3层网络收敛变慢是不是朴素初始化导致的"——答案是"不完全是，深度本身也有贡献，朴素初始化只是放大效应"。
 3. ~~数据增强~~（`src/expand_mnist.py`）——**已完成，见4.16节**。用早停（而不是猜固定epoch数）各跑3次重复，确认了增强带来约+0.79pp的eval_acc提升，且过拟合缺口由正转负。
-4. **Softmax输出层 + log-likelihood代价函数**——`network2.py`里目前没有，书里作为交叉熵的另一种替代方案介绍，需要新加代码（不算大改）。
+4. ~~Softmax输出层 + log-likelihood代价函数~~ ——**已完成，见4.19节**。和交叉熵+sigmoid表现非常接近（差异在噪声范围内），符合书里"两者数学上是同一种误差形式，只是概率解释不同"的预期。
 5. **基于动量的梯度下降（momentum-based SGD）**——`network2.py`里目前没有，书里"SGD的变种"一节的内容，需要新加代码。
 6. **其他神经元类型：tanh神经元、ReLU神经元**——书第3.6节内容，`network2.py`目前所有层都硬编码sigmoid，需要新加代码。
 
@@ -441,6 +441,19 @@ $$\mathrm{Var}(z)\approx n_{in}\cdot\mathrm{Var}(w)\cdot\mathrm{Var}(x) \quad\Ri
 
 **最终决定：patience=15和20都对，选15**。15→20平均要多训练11~16个epoch（约多25~35%的训练时间），换来的收益只是把最坏损失从-0.23pp收窄到-0.05pp（本来就在噪声范围内）——性价比不高。**仓库以后的约定：不加正则化时patience=10够用；一旦叠加L2（或其他波动较大的正则化，如L1/dropout，参照4.9.1节的保守估计）用patience=15**。
 
+### 4.19 Softmax输出层 + log-likelihood代价函数（第3章demo，3次重复）
+
+`network2.py`新增`softmax(z)`（按列做数值稳定的softmax）和`LogLikelihoodCost`类（`fn = -sum(y*log(a))`，`delta(z,a,y) = a-y`，和交叉熵的delta公式形式一致，书里有证明）。`feedforward`/`backprop2`的输出层激活函数改成"当`self.cost is LogLikelihoodCost`时用softmax，否则sigmoid"，隐藏层始终sigmoid不变；legacy的`SGD`/`backprop`（非`SGD2`/`backprop2`）路径没有同步改，因为实验脚本只走`SGD2`路径。`network2_test.py`的`--cost`加了`log_likelihood`选项，选中后自动走softmax输出层，不需要单独的开关。
+
+对比`784,30,10`架构、`n_train=50000`、无正则化、η=0.5下的`cross_entropy`(sigmoid输出) vs `log_likelihood`(softmax输出)，各跑3次重复。**这里`patience`用了15而不是4.17/4.18节"无正则化用10"的约定**——因为4.17/4.18节的回测只验证过sigmoid+cross_entropy/quadratic组合在训练后期的"沉默期"分布，换了softmax+log-likelihood这个没验证过的新组合后，不确定早停动态是否一样，按更保守的档位处理，不直接套用"无正则化=10"这条规则。
+
+| cost | eval_acc(best, 3次) | 均值 | best_epoch(3次) |
+|---|---|---|---|
+| cross_entropy (sigmoid) | 95.97% / 96.23% / 96.30% | 96.17% | 18 / 20 / 22 |
+| log_likelihood (softmax) | 96.29% / 96.42% / 96.46% | 96.39% | 15 / 16 / 21 |
+
+**结论：两者表现确实非常接近，差异在噪声范围内**。均值相差+0.22pp（log_likelihood略高），小于4.10节确立的噪声基准(~0.5pp)，不能判定谁更好；收敛所需的epoch数（best_epoch）也只是方向上log_likelihood略快（均值17.3 vs 20），同样在噪声范围内。这和书里的理论预期一致——softmax+log-likelihood与sigmoid+cross-entropy在输出层误差公式上本来就是同一个形式(`δ=a-y`)，只是对输出的概率解释不同（softmax给出跨类别归一化的概率分布，sigmoid的各输出独立不归一），不是追求准确率提升的技巧。这个demo的目的是体验"另一种概率解释"而不是找更优方案，到此为止，不再深挖（不扫λ、不扫架构）。
+
 ## 5. 还没做的（按优先级排序）
 
 **方向已调整（见第0节），这里的优先级以第0节"按书的章节顺序"为准，跑3次重复看效果，不追求统计严谨性：**
@@ -448,7 +461,7 @@ $$\mathrm{Var}(z)\approx n_{in}\cdot\mathrm{Var}(w)\cdot\mathrm{Var}(x) \quad\Ri
 1. ~~二次代价函数(QuadraticCost) vs 交叉熵代价函数对比~~ ——**已完成，见4.13节**
 2. ~~权重初始化对比：`default_weight_initializer` vs `large_weight_initializer`~~ ——**已完成，见4.14节**（顺带修复了`Network.__init__`硬编码large的遗留问题，`default_weight_initializer`现在才是真正的默认值）
 3. ~~数据增强：`src/expand_mnist.py`~~ ——**已完成，见4.16节**
-4. Softmax输出层 + log-likelihood代价函数（第0节第4条，需要新加代码）
+4. ~~Softmax输出层 + log-likelihood代价函数~~ ——**已完成，见4.19节**
 5. 基于动量的梯度下降（momentum-based SGD）（第0节第5条，需要新加代码）
 6. 其他神经元类型：tanh神经元、ReLU（rectified linear）神经元（书第3.6节"其他技术"，和动量SGD同一节，需要新加代码——`network2.py`目前所有层都硬编码sigmoid）
 7. 再往后：第5章"为什么深层网络难训练"（理论阅读，4.14/4.15节已经部分验证"深度本身拖慢收敛、独立于初始化方式"以及sigmoid饱和的机制，读完这章后可以回头更精确拆解）、第6章卷积神经网络（`network3.py`/`conv.py`，从没跑过）

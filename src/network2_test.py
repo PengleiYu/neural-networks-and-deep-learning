@@ -43,8 +43,10 @@ parser.add_argument("--patience", type=parse_int_list, default=[0],
                      help="Early stopping patience (epochs with no evaluation-accuracy "
                           "improvement before stopping); 0 disables early stopping")
 parser.add_argument("--cost", type=str, default="cross_entropy",
-                     choices=["cross_entropy", "quadratic"],
-                     help="Cost function to use")
+                     choices=["cross_entropy", "quadratic", "log_likelihood"],
+                     help="Cost function to use. 'log_likelihood' pairs with a "
+                          "softmax output layer, switched on automatically by "
+                          "Network when this cost is selected.")
 parser.add_argument("--weight_init", type=str, default="default",
                      choices=["default", "large"],
                      help="Weight initializer: 'default' is the 1/sqrt(n_in)-scaled "
@@ -149,7 +151,10 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
 
     training_data = full_training_data[:n_train]
 
-    cost_class = network2.QuadraticCost if args.cost == "quadratic" else network2.CrossEntropyCost
+    cost_class = {
+        "quadratic": network2.QuadraticCost,
+        "log_likelihood": network2.LogLikelihoodCost,
+    }.get(args.cost, network2.CrossEntropyCost)
     net = network2.Network(net_sizes, cost = cost_class, weight_init = args.weight_init)
 
     monitor_evaluation_accuracy = True

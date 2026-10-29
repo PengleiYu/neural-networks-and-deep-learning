@@ -64,6 +64,35 @@ class CrossEntropyCost(object):
         return (a-y)
 
 
+class LogLikelihoodCost(object):
+    """Pairs with a softmax output layer (see ``Network.feedforward`` and
+    ``Network.backprop2``, which switch the output layer's activation to
+    ``softmax`` when ``self.cost is LogLikelihoodCost``). As with
+    ``CrossEntropyCost``/sigmoid, the delta formula below works out to
+    ``(a-y)`` for this activation/cost pairing.
+
+    """
+
+    @staticmethod
+    def fn(a, y):
+        """Return the cost associated with a softmax output ``a`` and desired
+        output ``y``.  np.nan_to_num guards against log(0) on slots where
+        ``y`` is 0.
+
+        """
+        return np.sum(np.nan_to_num(-y*np.log(a)))
+
+    @staticmethod
+    def delta(z, a, y):
+        """Return the error delta from the output layer.  Note that the
+        parameter ``z`` is not used by the method.  It is included in
+        the method's parameters in order to make the interface
+        consistent with the delta method for other cost classes.
+
+        """
+        return (a-y)
+
+
 #### Main Network class
 class Network(object):
 
@@ -125,9 +154,19 @@ class Network(object):
                         for x, y in zip(self.sizes[:-1], self.sizes[1:])]
 
     def feedforward(self, a):
-        """Return the output of the network if ``a`` is input."""
-        for b, w in zip(self.biases, self.weights):
-            a = sigmoid(np.dot(w, a)+b)
+        """Return the output of the network if ``a`` is input.  The output
+        layer uses ``softmax`` instead of ``sigmoid`` when the network's
+        cost is ``LogLikelihoodCost``; all other layers always use
+        ``sigmoid``.
+
+        """
+        num_weight_layers = len(self.weights)
+        for i, (b, w) in enumerate(zip(self.biases, self.weights)):
+            z = np.dot(w, a)+b
+            if i == num_weight_layers - 1 and self.cost is LogLikelihoodCost:
+                a = softmax(z)
+            else:
+                a = sigmoid(z)
         return a
 
     def SGD(self, training_data, epochs, mini_batch_size, eta,
@@ -345,7 +384,10 @@ class Network(object):
         for i, (b, w) in enumerate(zip(self.biases, self.weights)):
             z = np.dot(w, activation)+b
             zs.append(z)
-            activation = sigmoid(z)
+            if i == num_weight_layers - 1 and self.cost is LogLikelihoodCost:
+                activation = softmax(z)
+            else:
+                activation = sigmoid(z)
             if dropout_prob > 0 and i < num_weight_layers - 1:
                 mask = np.random.rand(*activation.shape) < keep_prob
                 activation = activation * mask / keep_prob
@@ -542,6 +584,17 @@ def vectorized_result(j):
     e = np.zeros((10, 1))
     e[j] = 1.0
     return e
+
+def softmax(z):
+    """The softmax function, applied column-wise (each column of ``z`` is
+    treated as one example's vector of pre-activations).  Subtracting
+    each column's max before exponentiating keeps this numerically
+    stable without changing the result (softmax is shift-invariant).
+
+    """
+    shifted = z - np.max(z, axis=0, keepdims=True)
+    exps = np.exp(shifted)
+    return exps / np.sum(exps, axis=0, keepdims=True)
 
 def sigmoid(z):
     """The sigmoid function."""

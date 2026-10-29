@@ -53,9 +53,13 @@ later Theano versions and the upstream README explicitly says it won't be.
 - `src/network.py` — Chapter 1/2 network: sigmoid neurons, quadratic cost, plain SGD + backprop. Two
   backprop implementations exist (`backprop`/`update_mini_batch`, per-example; `backprop2`/`update_mini_batch2`,
   vectorized over the whole mini-batch) — `SGD` calls the vectorized path.
-- `src/network2.py` — Chapter 3 network: adds `CrossEntropyCost`/`QuadraticCost` cost objects, L2
-  regularization, better (`1/sqrt(n_in)`-scaled) weight initialization vs. the naive `large_weight_initializer`
-  kept for comparison. `Network.SGD` (`SGD2` internally) is the main entry point and supports early stopping
+- `src/network2.py` — Chapter 3 network: adds `CrossEntropyCost`/`QuadraticCost`/`LogLikelihoodCost` cost
+  objects, L2 regularization, better (`1/sqrt(n_in)`-scaled) weight initialization vs. the naive
+  `large_weight_initializer` kept for comparison. The output layer's activation function is `softmax` when
+  `cost is LogLikelihoodCost`, otherwise `sigmoid` (hidden layers are always sigmoid); this switch lives in
+  `feedforward`/`backprop2` only — the legacy `SGD`/`backprop` path wasn't updated, since the experiment
+  harness only exercises `SGD2`/`backprop2` (see `overfitting-experiments-log.md` section 4.19). `Network.SGD`
+  (`SGD2` internally) is the main entry point and supports early stopping
   via a `patience` parameter: it snapshots weights/biases whenever validation accuracy improves and rolls back
   to the best snapshot at the end of training — the returned network is always the best-seen one, not the
   last epoch. Note the per-epoch arrays it returns (`evaluation_accuracy`, `weight_norm`, ...) are the *full*
@@ -76,8 +80,9 @@ later Theano versions and the upstream README explicitly says it won't be.
   `--dropout_prob`, `--patience`, `--sparsity_threshold`) takes a comma-separated list (semicolon-separated
   for `--net_sizes` to separate whole architectures, e.g. `784,30,10;784,100,10`); the script runs the full
   Cartesian product of all lists in one invocation and writes one row per run (+ one row per epoch) into
-  `src/network2_experiments.db` (SQLite, gitignored). `--cost` (default `cross_entropy`), `--weight_init`
-  (default `default`), and `--training_data {mnist,mnist_expanded}` (default `mnist`) are single-value
+  `src/network2_experiments.db` (SQLite, gitignored). `--cost {cross_entropy,quadratic,log_likelihood}`
+  (default `cross_entropy`; `log_likelihood` switches the output layer to `softmax`, see Architecture above),
+  `--weight_init` (default `default`), and `--training_data {mnist,mnist_expanded}` (default `mnist`) are single-value
   choices, *not* part of the sweep — compare them across separate invocations. Because it's a Cartesian product,
   `--lmbda` and `--lmbda1` cannot be swept as paired tuples in one call — sweep one dimension at a time if
   you need specific (λ, λ1) pairs. Every invocation gets a `group_tag` (your `--group_tag` prefix, if given,
@@ -101,9 +106,9 @@ later Theano versions and the upstream README explicitly says it won't be.
   train/val loss divergence as the primary signal, why loss leads accuracy, weight-norm growth as a
   structural indicator.
 - [overfitting-experiments-log.md](overfitting-experiments-log.md) — session-handoff log (in Chinese) of
-  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (softmax +
-  log-likelihood output layer, momentum SGD, tanh/ReLU neurons — data augmentation is done, see section
-  4.16). Read this first when resuming experiment work — it records the current direction (follow the book
+  actual experiments run, the current state of the code/data, and the outstanding chapter-3 TODOs (momentum
+  SGD, tanh/ReLU neurons — data augmentation is done, see section 4.16; softmax + log-likelihood output layer
+  is done, see section 4.19). Read this first when resuming experiment work — it records the current direction (follow the book
   chapter-by-chapter, 3-repeat intuition over rigorous grid sweeps) and avoids re-deriving context from
   scratch.
 
