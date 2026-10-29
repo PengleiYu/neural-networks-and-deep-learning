@@ -111,6 +111,11 @@ later Theano versions and the upstream README explicitly says it won't be.
   is done, see section 4.19). Read this first when resuming experiment work — it records the current direction (follow the book
   chapter-by-chapter, 3-repeat intuition over rigorous grid sweeps) and avoids re-deriving context from
   scratch.
+- [theory-notes.md](theory-notes.md) — deep-dive theory notes (in Chinese), organized by book chapter,
+  for conceptual questions explored beyond what's needed to run experiments (e.g. chapter 3.6: why Hessian/
+  second-order methods don't scale, the Baur–Strassen theorem and why gradients are "free" via backprop,
+  what makes a function representable as an arithmetic circuit). Separate from `overfitting-notes.md` (scoped
+  to overfitting diagnosis) and the experiments log (execution record, not theory).
 
 ## Data
 
