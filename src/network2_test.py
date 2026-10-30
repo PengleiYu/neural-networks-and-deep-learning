@@ -79,10 +79,11 @@ parser.add_argument("--cost", type=str, default="cross_entropy",
                           "softmax output layer, switched on automatically by "
                           "Network when this cost is selected.")
 parser.add_argument("--weight_init", type=str, default="default",
-                     choices=["default", "large"],
+                     choices=["default", "large", "he"],
                      help="Weight initializer: 'default' is the 1/sqrt(n_in)-scaled "
                           "initializer, 'large' is the naive N(0,1) initializer kept "
-                          "for comparison")
+                          "for comparison, 'he' is the sqrt(2/n_in)-scaled initializer "
+                          "(He et al. 2015), meant for --activation relu")
 parser.add_argument("--activation", type=str, default="sigmoid",
                      choices=["sigmoid", "tanh", "relu"],
                      help="Hidden-layer activation function. Single-value choice like "

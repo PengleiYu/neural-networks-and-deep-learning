@@ -144,8 +144,9 @@ class Network(object):
         third layer 1 neuron.  The biases and weights for the network
         are initialized randomly, using ``self.default_weight_initializer``
         (see docstring for that method), unless ``weight_init="large"``
-        is passed, in which case ``self.large_weight_initializer`` is used
-        instead (kept for comparison -- see its docstring).
+        or ``weight_init="he"`` is passed, in which case
+        ``self.large_weight_initializer``/``self.he_weight_initializer`` is
+        used instead (see their docstrings -- both kept for comparison).
 
         ``hidden_activation`` picks the activation used by every hidden
         layer (``SigmoidActivation`` by default, keeping backward
@@ -162,6 +163,8 @@ class Network(object):
         self.sizes = sizes
         if weight_init == "large":
             self.large_weight_initializer()
+        elif weight_init == "he":
+            self.he_weight_initializer()
         else:
             self.default_weight_initializer()
         self.cost=cost
@@ -202,6 +205,27 @@ class Network(object):
         """
         self.biases = [np.random.randn(y, 1) for y in self.sizes[1:]]
         self.weights = [np.random.randn(y, x)
+                        for x, y in zip(self.sizes[:-1], self.sizes[1:])]
+
+    def he_weight_initializer(self):
+        """Initialize each weight using a Gaussian distribution with mean 0
+        and standard deviation sqrt(2) over the square root of the number of
+        weights connecting to the same neuron (He et al. 2015) -- the
+        ``sqrt(2)`` factor compensates for ReLU zeroing out about half its
+        inputs in expectation, keeping the variance of ``z`` roughly constant
+        across layers the way ``default_weight_initializer``'s plain
+        ``1/sqrt(n_in)`` scaling does for sigmoid/tanh. Biases are
+        initialized the same way as the other two initializers (Gaussian,
+        mean 0, standard deviation 1).
+
+        Not used by anything in this module automatically -- selected via
+        ``weight_init="he"`` when it's specifically the hidden layers'
+        activation (``hidden_activation``) that is ReLU, same as
+        ``large_weight_initializer`` is a deliberate, explicit choice.
+
+        """
+        self.biases = [np.random.randn(y, 1) for y in self.sizes[1:]]
+        self.weights = [np.random.randn(y, x)*np.sqrt(2.0/x)
                         for x, y in zip(self.sizes[:-1], self.sizes[1:])]
 
     def feedforward(self, a):
