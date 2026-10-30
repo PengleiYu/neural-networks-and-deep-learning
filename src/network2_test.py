@@ -83,6 +83,14 @@ parser.add_argument("--weight_init", type=str, default="default",
                      help="Weight initializer: 'default' is the 1/sqrt(n_in)-scaled "
                           "initializer, 'large' is the naive N(0,1) initializer kept "
                           "for comparison")
+parser.add_argument("--activation", type=str, default="sigmoid",
+                     choices=["sigmoid", "tanh", "relu"],
+                     help="Hidden-layer activation function. Single-value choice like "
+                          "--cost/--weight_init, not part of the sweep -- compare across "
+                          "separate invocations. Output layer is unaffected (still "
+                          "governed by --cost's softmax/sigmoid switch). 'relu' also "
+                          "turns on the per-epoch dead-neuron monitor (see "
+                          "Network.dead_relu_fractions)")
 parser.add_argument("--training_data", type=str, default="mnist",
                      choices=["mnist", "mnist_expanded"],
                      help="Which training set to load: 'mnist' is the plain 50,000-image "
@@ -189,15 +197,29 @@ cursor.execute("""
 existing_columns = [row[1] for row in cursor.execute("PRAGMA table_info(runs)").fetchall()]
 if "group_tag" not in existing_columns:
     cursor.execute("ALTER TABLE runs ADD COLUMN group_tag TEXT")
+
+# Separate table (not a column on `epochs`) because the dead-neuron
+# fraction is inherently per-hidden-layer, and the number of hidden
+# layers varies across architectures -- only populated for runs with
+# --activation relu (see monitor_dead_relu in network2.SGD2).
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS dead_relu (
+        run_id        INTEGER NOT NULL REFERENCES runs(run_id),
+        epoch         INTEGER NOT NULL,
+        layer_index   INTEGER NOT NULL,
+        dead_fraction REAL NOT NULL,
+        PRIMARY KEY (run_id, epoch, layer_index)
+    )
+""")
 conn.commit()
 
 for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
                    lmbda1, dropout_prob, mu, patience, sparsity_threshold,
                    eta_decay_patience, eta_decay_factor, max_eta_decays, min_eta) in enumerate(combos):
 
-    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_mu_{}_nesterov_{}_patience_{}_etadecay_{}_{}_{}_min_{}_cost_{}_winit_{}_data_{}".format(
+    run_tag = "net_{}_ntrain{}_epochs{}_mb{}_eta{}_lmbda_{}_lmbda1_{}_dropout_{}_mu_{}_nesterov_{}_patience_{}_etadecay_{}_{}_{}_min_{}_cost_{}_winit_{}_data_{}_act_{}".format(
         "-".join(str(s) for s in net_sizes), n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, args.nesterov, patience,
-        eta_decay_patience, eta_decay_factor, max_eta_decays, min_eta, args.cost, args.weight_init, args.training_data)
+        eta_decay_patience, eta_decay_factor, max_eta_decays, min_eta, args.cost, args.weight_init, args.training_data, args.activation)
 
     print "=== combo {}/{}: {} ===".format(combo_index + 1, len(combos), run_tag)
 
@@ -207,7 +229,12 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
         "quadratic": network2.QuadraticCost,
         "log_likelihood": network2.LogLikelihoodCost,
     }.get(args.cost, network2.CrossEntropyCost)
-    net = network2.Network(net_sizes, cost = cost_class, weight_init = args.weight_init)
+    activation_class = {
+        "tanh": network2.TanhActivation,
+        "relu": network2.ReLUActivation,
+    }.get(args.activation, network2.SigmoidActivation)
+    net = network2.Network(net_sizes, cost = cost_class, weight_init = args.weight_init,
+                            hidden_activation = activation_class)
 
     monitor_evaluation_accuracy = True
     monitor_evaluation_cost = True
@@ -215,11 +242,13 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
     monitor_training_cost = True
     monitor_weight_norm = True
     monitor_weight_sparsity = True
+    monitor_dead_relu = (args.activation == "relu")
 
     # SGD2 returns (evaluation_cost, evaluation_accuracy, training_cost,
-    # training_accuracy, weight_norm, weight_sparsity, final_eta). Any list
-    # whose corresponding monitor_* flag above is False comes back empty.
-    evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm, weight_sparsity, final_eta = net.SGD2(
+    # training_accuracy, weight_norm, weight_sparsity,
+    # dead_relu_fractions_by_epoch, final_eta). Any list whose corresponding
+    # monitor_* flag above is False comes back empty.
+    evaluation_cost, evaluation_accuracy, training_cost, training_accuracy, weight_norm, weight_sparsity, dead_relu_fractions_by_epoch, final_eta = net.SGD2(
         training_data, n_epochs, mini_batch_size, eta=eta,
         lmbda = lmbda, lmbda1 = lmbda1, dropout_prob = dropout_prob, mu = mu, nesterov = args.nesterov,
         evaluation_data = validation_data,
@@ -229,6 +258,7 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
         monitor_training_cost = monitor_training_cost,
         monitor_weight_norm = monitor_weight_norm,
         monitor_weight_sparsity = monitor_weight_sparsity,
+        monitor_dead_relu = monitor_dead_relu,
         sparsity_threshold = sparsity_threshold,
         patience = patience,
         eta_decay_patience = eta_decay_patience,
@@ -253,8 +283,8 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
     ]
     active_series = [(name, values) for name, values, monitored in series if monitored]
 
-    print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={} mu={} nesterov={} patience={} eta_decay_patience={} min_eta={} final_eta={} actual_epochs={}".format(
-        net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, args.nesterov, patience, eta_decay_patience, min_eta, final_eta, len(epochs))
+    print "net_sizes={} n_train={} n_epochs={} mini_batch_size={} eta={} lmbda={} lmbda1={} dropout_prob={} mu={} nesterov={} patience={} eta_decay_patience={} min_eta={} final_eta={} actual_epochs={} activation={}".format(
+        net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda, lmbda1, dropout_prob, mu, args.nesterov, patience, eta_decay_patience, min_eta, final_eta, len(epochs), args.activation)
     print "Epoch\t" + "\t\t".join(name for name, _ in active_series)
     for i, ep in enumerate(epochs):
         columns = [str(ep)]
@@ -295,6 +325,18 @@ for combo_index, (net_sizes, n_train, n_epochs, mini_batch_size, eta, lmbda,
          evaluation_cost[i], evaluation_accuracy[i], weight_norm[i], weight_sparsity[i])
         for i, ep in enumerate(epochs)
     ])
+
+    # dead_relu_fractions_by_epoch is empty unless monitor_dead_relu was set
+    # (i.e. --activation relu); each entry is a per-hidden-layer list.
+    if dead_relu_fractions_by_epoch:
+        cursor.executemany("""
+            INSERT INTO dead_relu (run_id, epoch, layer_index, dead_fraction)
+            VALUES (?, ?, ?, ?)
+        """, [
+            (run_id, ep, layer_index, fraction)
+            for i, ep in enumerate(epochs)
+            for layer_index, fraction in enumerate(dead_relu_fractions_by_epoch[i])
+        ])
 
     conn.commit()
     print "Saved run_id={} (group_tag={}) to {}".format(run_id, group_tag, db_path)

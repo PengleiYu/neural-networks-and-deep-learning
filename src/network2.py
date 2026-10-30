@@ -93,10 +93,50 @@ class LogLikelihoodCost(object):
         return (a-y)
 
 
+#### Define the hidden-layer activation functions, following the same
+#### class-based dispatch pattern as the cost classes above (``fn``/``prime``
+#### staticmethods; the method bodies call the free functions defined near
+#### the bottom of this file -- that's fine since the call only resolves at
+#### invocation time, not at class-definition time).
+
+class SigmoidActivation(object):
+
+    @staticmethod
+    def fn(z):
+        return sigmoid(z)
+
+    @staticmethod
+    def prime(z):
+        return sigmoid_prime(z)
+
+
+class TanhActivation(object):
+
+    @staticmethod
+    def fn(z):
+        return tanh(z)
+
+    @staticmethod
+    def prime(z):
+        return tanh_prime(z)
+
+
+class ReLUActivation(object):
+
+    @staticmethod
+    def fn(z):
+        return relu(z)
+
+    @staticmethod
+    def prime(z):
+        return relu_prime(z)
+
+
 #### Main Network class
 class Network(object):
 
-    def __init__(self, sizes, cost=CrossEntropyCost, weight_init="default"):
+    def __init__(self, sizes, cost=CrossEntropyCost, weight_init="default",
+                 hidden_activation=SigmoidActivation):
         """The list ``sizes`` contains the number of neurons in the respective
         layers of the network.  For example, if the list was [2, 3, 1]
         then it would be a three-layer network, with the first layer
@@ -107,6 +147,16 @@ class Network(object):
         is passed, in which case ``self.large_weight_initializer`` is used
         instead (kept for comparison -- see its docstring).
 
+        ``hidden_activation`` picks the activation used by every hidden
+        layer (``SigmoidActivation`` by default, keeping backward
+        compatibility); ``TanhActivation``/``ReLUActivation`` are the
+        other options. This only affects ``feedforward``/``backprop2``
+        (the vectorized path) -- the output layer's own softmax/sigmoid
+        switch (based on ``cost is LogLikelihoodCost``) is independent of
+        this setting, and the legacy ``SGD``/``backprop`` path still
+        hardcodes sigmoid everywhere, same as before ``cost`` gained the
+        softmax switch.
+
         """
         self.num_layers = len(sizes)
         self.sizes = sizes
@@ -115,6 +165,7 @@ class Network(object):
         else:
             self.default_weight_initializer()
         self.cost=cost
+        self.hidden_activation = hidden_activation
 
     def default_weight_initializer(self):
         """Initialize each weight using a Gaussian distribution with mean 0
@@ -157,13 +208,15 @@ class Network(object):
         """Return the output of the network if ``a`` is input.  The output
         layer uses ``softmax`` instead of ``sigmoid`` when the network's
         cost is ``LogLikelihoodCost``; all other layers always use
-        ``sigmoid``.
+        ``self.hidden_activation``.
 
         """
         num_weight_layers = len(self.weights)
         for i, (b, w) in enumerate(zip(self.biases, self.weights)):
             z = np.dot(w, a)+b
-            if i == num_weight_layers - 1 and self.cost is LogLikelihoodCost:
+            if i < num_weight_layers - 1:
+                a = self.hidden_activation.fn(z)
+            elif self.cost is LogLikelihoodCost:
                 a = softmax(z)
             else:
                 a = sigmoid(z)
@@ -243,6 +296,7 @@ class Network(object):
             monitor_training_accuracy=False,
             monitor_weight_norm=False,
             monitor_weight_sparsity=False,
+            monitor_dead_relu=False,
             sparsity_threshold=1e-2,
             patience=0,
             eta_decay_patience=0,
@@ -255,9 +309,11 @@ class Network(object):
         with absolute value below ``sparsity_threshold``) is computed at
         the end of each epoch and returned as a fifth (respectively,
         sixth) list, alongside the four lists returned by ``SGD``. A
-        seventh return value, ``eta``, is always included -- the learning
-        rate in effect during the last epoch actually trained (equal to
-        the ``eta`` argument unless ``eta_decay_patience`` lowered it).
+        seventh list, ``dead_relu_fractions_by_epoch`` (see
+        ``monitor_dead_relu`` below), and an eighth return value, ``eta``,
+        are always included -- ``eta`` is the learning rate in effect
+        during the last epoch actually trained (equal to the ``eta``
+        argument unless ``eta_decay_patience`` lowered it).
 
         ``patience`` enables early stopping: if set to a positive
         integer, training stops once ``patience`` epochs have passed
@@ -308,6 +364,18 @@ class Network(object):
         ``update_mini_batch2``). Ignored when ``mu=0.0`` (lookahead point
         equals the current point, so there's nothing to switch).
 
+        ``monitor_dead_relu``, when set, computes (via
+        ``dead_relu_fractions``, run over the full ``training_data``) a
+        per-hidden-layer list of "dead neuron" fractions at the end of
+        each epoch, both printing it and appending it to the returned
+        ``dead_relu_fractions_by_epoch`` list (one entry per epoch, each
+        itself a per-hidden-layer list -- same shape/indexing
+        convention as ``self.weights``/``self.biases`` restricted to
+        hidden layers). Only meaningful when ``self.hidden_activation``
+        is ``ReLUActivation``; the list is empty when
+        ``monitor_dead_relu=False`` (the default), same convention as
+        the other ``monitor_*`` flags.
+
         Note that the returned per-epoch lists (``evaluation_accuracy``,
         ``weight_norm``, etc.) are the full training record, including
         any epochs run after the best one while patience (or the eta
@@ -339,6 +407,7 @@ class Network(object):
         training_cost, training_accuracy = [], []
         weight_norm = []
         weight_sparsity = []
+        dead_relu_fractions_by_epoch = []
         best_accuracy = 0
         no_improvement_count = 0
         decay_count = 0
@@ -391,6 +460,11 @@ class Network(object):
                 weight_sparsity.append(sparsity)
                 print "Weight sparsity (fraction |w| < {}): {}".format(
                     sparsity_threshold, sparsity)
+            if monitor_dead_relu:
+                dead_fractions = self.dead_relu_fractions(training_data)
+                dead_relu_fractions_by_epoch.append(dead_fractions)
+                print "Dead ReLU fraction per hidden layer: {}".format(
+                    ["{:.4f}".format(f) for f in dead_fractions])
             print
             if patience > 0 and no_improvement_count >= patience:
                 print "Early stopping at epoch {} (no improvement in {} epochs)".format(
@@ -413,7 +487,8 @@ class Network(object):
             self.weights = best_weights
             self.biases = best_biases
         return evaluation_cost, evaluation_accuracy, \
-            training_cost, training_accuracy, weight_norm, weight_sparsity, eta
+            training_cost, training_accuracy, weight_norm, weight_sparsity, \
+            dead_relu_fractions_by_epoch, eta
 
     def update_mini_batch(self, mini_batch, eta, lmbda, n):
         """Update the network's weights and biases by applying gradient
@@ -471,7 +546,9 @@ class Network(object):
         for i, (b, w) in enumerate(zip(self.biases, self.weights)):
             z = np.dot(w, activation)+b
             zs.append(z)
-            if i == num_weight_layers - 1 and self.cost is LogLikelihoodCost:
+            if i < num_weight_layers - 1:
+                activation = self.hidden_activation.fn(z)
+            elif self.cost is LogLikelihoodCost:
                 activation = softmax(z)
             else:
                 activation = sigmoid(z)
@@ -488,7 +565,7 @@ class Network(object):
         nabla_w[-1] = np.dot(delta, activations[-2].transpose())
         for l in xrange(2, self.num_layers):
             z = zs[-l]
-            sp = sigmoid_prime(z)
+            sp = self.hidden_activation.prime(z)
             delta = np.dot(self.weights[-l+1].transpose(), delta) * sp
             mask = masks[-l]
             if mask is not None:
@@ -636,12 +713,44 @@ class Network(object):
         total_count = sum(w.size for w in self.weights)
         return float(small_count) / total_count
 
+    def dead_relu_fractions(self, data):
+        """Return a list with one entry per hidden layer: the fraction of
+        that layer's neurons whose activation is exactly 0.0 for every
+        example in ``data``. Only meaningful when ``self.hidden_activation``
+        is ``ReLUActivation`` -- sigmoid/tanh essentially never output an
+        exact zero, so this would read ~0.0 for them regardless of how
+        saturated the network actually is.
+
+        Mirrors the forward pass in ``feedforward``/``backprop2`` (same
+        hidden/output activation switch) but keeps the per-layer activation
+        matrices around long enough to check column-wise (i.e. per-neuron,
+        across the whole of ``data``) dead-ness, which ``feedforward``
+        doesn't expose.
+
+        """
+        X = np.hstack([x for x, y in data])
+        activation = X
+        num_weight_layers = len(self.weights)
+        fractions = []
+        for i, (b, w) in enumerate(zip(self.biases, self.weights)):
+            z = np.dot(w, activation)+b
+            if i < num_weight_layers - 1:
+                activation = self.hidden_activation.fn(z)
+                dead = np.all(activation == 0.0, axis=1)
+                fractions.append(float(np.sum(dead)) / dead.shape[0])
+            elif self.cost is LogLikelihoodCost:
+                activation = softmax(z)
+            else:
+                activation = sigmoid(z)
+        return fractions
+
     def save(self, filename):
         """Save the neural network to the file ``filename``."""
         data = {"sizes": self.sizes,
                 "weights": [w.tolist() for w in self.weights],
                 "biases": [b.tolist() for b in self.biases],
-                "cost": str(self.cost.__name__)}
+                "cost": str(self.cost.__name__),
+                "hidden_activation": str(self.hidden_activation.__name__)}
         f = open(filename, "w")
         json.dump(data, f)
         f.close()
@@ -656,7 +765,12 @@ def load(filename):
     data = json.load(f)
     f.close()
     cost = getattr(sys.modules[__name__], data["cost"])
-    net = Network(data["sizes"], cost=cost)
+    # .get(..., "SigmoidActivation") keeps this loadable for files saved
+    # before hidden_activation existed (they were all sigmoid-hidden-layer
+    # networks, since that was the only option at the time).
+    hidden_activation = getattr(
+        sys.modules[__name__], data.get("hidden_activation", "SigmoidActivation"))
+    net = Network(data["sizes"], cost=cost, hidden_activation=hidden_activation)
     net.weights = [np.array(w) for w in data["weights"]]
     net.biases = [np.array(b) for b in data["biases"]]
     return net
@@ -690,3 +804,23 @@ def sigmoid(z):
 def sigmoid_prime(z):
     """Derivative of the sigmoid function."""
     return sigmoid(z)*(1-sigmoid(z))
+
+def tanh(z):
+    """The tanh function."""
+    return np.tanh(z)
+
+def tanh_prime(z):
+    """Derivative of the tanh function."""
+    return 1.0 - np.tanh(z)**2
+
+def relu(z):
+    """The ReLU (rectified linear) function."""
+    return np.maximum(0.0, z)
+
+def relu_prime(z):
+    """Derivative of the ReLU function. Treated as 0 at z=0 (the
+    subgradient is any value in [0,1] there; 0 matches the convention
+    used for "dead" neurons elsewhere in this module).
+
+    """
+    return (z > 0).astype(float)
